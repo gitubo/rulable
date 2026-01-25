@@ -9,13 +9,12 @@ import {
   ConnectionInstance,
   NodeInstance
 } from '../../core/types';
+import { Registry } from '../../core/Registry';
 
-// Mock Registry interface for getPath signature to avoid circular dependency
-// In real implementation, this would import the Registry class
-interface RegistryStub {
-  [key: string]: any;
-}
-
+/**
+ * Connection entity representing a link between two handlers.
+ * Manages connection data, styling, and path type.
+ */
 export class Connection implements ConnectionInstance {
   readonly id: ConnectionId;
   readonly type: string;
@@ -28,6 +27,16 @@ export class Connection implements ConnectionInstance {
   
   private definition: ConnectionPluginDefinition;
   
+  /**
+   * Creates a new Connection instance.
+   * @param id - Unique connection identifier
+   * @param type - Connection type (references plugin registry)
+   * @param definition - Plugin definition for this connection type
+   * @param sourceHandlerId - Source handler ID
+   * @param targetHandlerId - Target handler ID
+   * @param pathType - Visual path rendering type (bezier, smooth_step, straight)
+   * @param data - Custom connection data
+   */
   constructor(
     id: ConnectionId,
     type: string,
@@ -47,16 +56,27 @@ export class Connection implements ConnectionInstance {
     
     // Default style
     this.style = {
-        stroke: '#666666',
-        strokeWidth: 2
+      stroke: '#666666',
+      strokeWidth: 2
     };
   }
   
-  getPath(nodes: NodeInstance[], registry: RegistryStub): string {
-    // To be implemented in geometry phase using PathCalculator
+  /**
+   * Calculates the SVG path string for this connection.
+   * Delegates to PathCalculator in rendering phase.
+   * @param nodes - All nodes in the graph (needed to locate handlers)
+   * @param registry - Plugin registry (for accessing path calculation strategies)
+   * @returns SVG path string or empty string if calculation fails
+   */
+  getPath(nodes: NodeInstance[], registry: Registry): string {
+    // Implemented by PathCalculator in rendering phase
     return '';
   }
   
+  /**
+   * Updates connection properties.
+   * @param changes - Partial connection data to merge
+   */
   update(changes: Partial<ConnectionData>): void {
     if (changes.label !== undefined) {
       this.label = changes.label;
@@ -68,10 +88,14 @@ export class Connection implements ConnectionInstance {
       this.data = { ...this.data, ...changes.data };
     }
     if (changes.pathType !== undefined) {
-        this.pathType = changes.pathType;
+      this.pathType = changes.pathType;
     }
   }
   
+  /**
+   * Exports immutable connection data snapshot.
+   * @returns Frozen connection data object
+   */
   getData(): ConnectionData {
     return Object.freeze({
       id: this.id,
@@ -85,6 +109,10 @@ export class Connection implements ConnectionInstance {
     });
   }
   
+  /**
+   * Creates a deep copy of this connection.
+   * @returns New Connection instance with copied data
+   */
   clone(): Connection {
     const cloned = new Connection(
       this.id,

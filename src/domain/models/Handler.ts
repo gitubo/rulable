@@ -8,8 +8,12 @@ import {
   HandlerPluginDefinition,
   HandlerInstance
 } from '../../core/types';
-import * as d3 from 'd3'; // Type import for d3 Selection
+import * as d3 from 'd3';
 
+/**
+ * Handler entity representing a connection point on a node.
+ * Manages handler position, direction, and visual properties.
+ */
 export class Handler implements HandlerInstance {
   readonly id: HandlerId;
   readonly type: string;
@@ -22,13 +26,24 @@ export class Handler implements HandlerInstance {
   
   private definition: HandlerPluginDefinition;
   
+  /**
+   * Creates a new Handler instance.
+   * @param id - Unique handler identifier
+   * @param type - Handler type (references plugin registry)
+   * @param definition - Plugin definition for this handler type
+   * @param offset - Position offset relative to parent node
+   * @param label - Optional handler label
+   * @param role - Handler role (source/target/both)
+   * @param direction - Explicit direction or auto-calculated from offset
+   */
   constructor(
     id: HandlerId,
     type: string,
     definition: HandlerPluginDefinition,
     offset: Position,
     label: string = '',
-    role: 'source' | 'target' | '' = ''
+    role: 'source' | 'target' | '' = '',
+    direction?: Direction
   ) {
     this.id = id;
     this.type = type;
@@ -39,27 +54,70 @@ export class Handler implements HandlerInstance {
     this.dimensions = definition.dimensions;
     this.role = role;
     
-    // Default direction based on offset could be calculated here, 
-    // or passed in. Assuming logic handles this externally or defaults.
-    this.direction = Direction.OMNI; 
+    // Calculate direction from offset if not explicitly provided
+    this.direction = direction ?? this.calculateDirectionFromOffset(offset);
   }
   
+  /**
+   * Calculates handler direction based on position offset.
+   * Uses heuristic: largest absolute component determines direction.
+   * @param offset - Position offset from node center
+   * @returns Calculated direction
+   */
+  private calculateDirectionFromOffset(offset: Position): Direction {
+    const absX = Math.abs(offset.x);
+    const absY = Math.abs(offset.y);
+    
+    // If roughly centered, default to OMNI
+    if (absX < 10 && absY < 10) {
+      return Direction.OMNI;
+    }
+    
+    // Determine primary axis
+    if (absX > absY) {
+      return offset.x > 0 ? Direction.RIGHT : Direction.LEFT;
+    } else {
+      return offset.y > 0 ? Direction.BOTTOM : Direction.TOP;
+    }
+  }
+  
+  /**
+   * Gets the SVG shape template for rendering this handler.
+   * @returns SVG path string from plugin definition
+   */
   getShapeTemplate(): string {
     return this.definition.getShapeTemplate();
   }
   
+  /**
+   * Gets additional SVG attributes for the handler shape.
+   * @returns Attribute map or null if none defined
+   */
   getShapeAttributes(): Record<string, unknown> | null {
     return this.definition.getShapeAttributes?.() ?? null;
   }
   
+  /**
+   * Renders the handler label (implemented in rendering phase).
+   * @param group - D3 selection for the handler group
+   */
   renderLabel(group: d3.Selection<any, any, any, any>): void {
     // To be implemented in rendering phase
   }
   
+  /**
+   * Renders additional UI elements (implemented in rendering phase).
+   * @param group - D3 selection for the handler group
+   * @param state - Current render state
+   */
   renderExtras(group: d3.Selection<any, any, any, any>, state: any): void {
     // To be implemented in rendering phase
   }
   
+  /**
+   * Exports immutable handler data snapshot.
+   * @returns Frozen handler data object
+   */
   getData(): HandlerData {
     return Object.freeze({
       id: this.id,
@@ -71,6 +129,10 @@ export class Handler implements HandlerInstance {
     });
   }
   
+  /**
+   * Creates a deep copy of this handler.
+   * @returns New Handler instance with copied data
+   */
   clone(): Handler {
     return new Handler(
       this.id,
@@ -78,7 +140,8 @@ export class Handler implements HandlerInstance {
       this.definition,
       { ...this.offset },
       this.label,
-      this.role
+      this.role,
+      this.direction
     );
   }
 }

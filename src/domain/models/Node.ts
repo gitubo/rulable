@@ -11,6 +11,22 @@ import {
 } from '../../core/types';
 import { Handler } from './Handler';
 
+/**
+ * Node entity representing a graph node with handlers, data, and visual properties.
+ * Nodes are the primary building blocks of the graph and contain connection points (handlers).
+ * 
+ * @example
+ * ```typescript
+ * const node = new Node(
+ *   createNodeId('node_1'),
+ *   'task',
+ *   taskDefinition,
+ *   { x: 100, y: 100 },
+ *   'My Task',
+ *   { timeout: 5000 }
+ * );
+ * ```
+ */
 export class Node implements NodeInstance {
   readonly id: NodeId;
   readonly type: string;
@@ -26,6 +42,20 @@ export class Node implements NodeInstance {
   
   private definition: NodePluginDefinition;
   
+  /**
+   * Creates a new Node instance.
+   * Handlers are created automatically based on the plugin definition.
+   * 
+   * @param id - Unique node identifier
+   * @param type - Node type (must match registered plugin type)
+   * @param definition - Plugin definition containing shape, handlers, schema
+   * @param position - Graph coordinates for node placement
+   * @param label - Display label (default: empty string)
+   * @param data - Custom node data (default: empty object)
+   * @param handlers - Pre-created handlers (default: auto-generated from definition)
+   * @param width - Node width in pixels (default: 200)
+   * @param height - Node height in pixels (default: 100)
+   */
   constructor(
     id: NodeId,
     type: string,
@@ -51,14 +81,34 @@ export class Node implements NodeInstance {
     this.style = {};
   }
   
+  /**
+   * Gets the SVG path template for rendering this node's shape.
+   * Template is provided by the plugin definition.
+   * 
+   * @returns SVG path string defining the node body shape
+   */
   getShapeTemplate(): string {
     return this.definition.getShapeTemplate();
   }
   
+  /**
+   * Gets additional SVG attributes for the node shape (e.g., rounded corners).
+   * 
+   * @returns Attribute map or null if no additional attributes needed
+   * @example
+   * ```typescript
+   * { rx: 8, ry: 8 } // Rounded corners
+   * ```
+   */
   getShapeAttributes(): Record<string, unknown> | null {
     return this.definition.getShapeAttributes?.() ?? null;
   }
   
+  /**
+   * Gets the current dimensions of this node.
+   * 
+   * @returns Width and height in pixels
+   */
   getDimensions(): Dimensions {
     return {
       width: this.width,
@@ -66,10 +116,22 @@ export class Node implements NodeInstance {
     };
   }
   
+  /**
+   * Checks if this node has any input handlers.
+   * Used to determine if the node can be a connection target.
+   * 
+   * @returns True if node has handlers that accept incoming connections
+   */
   hasTargetHandlers(): boolean {
     return this.definition.hasTargetHandlers();
   }
   
+  /**
+   * Exports immutable node data snapshot.
+   * All nested objects are cloned to prevent external mutation.
+   * 
+   * @returns Frozen node data object safe for external consumption
+   */
   getData(): NodeData {
     return Object.freeze({
       id: this.id,
@@ -83,6 +145,12 @@ export class Node implements NodeInstance {
     });
   }
   
+  /**
+   * Creates a deep copy of this node.
+   * Handlers are recursively cloned.
+   * 
+   * @returns New Node instance with independent data
+   */
   clone(): Node {
     // Clone handlers recursively
     const clonedHandlers = this.handlers.map(h => h.clone());

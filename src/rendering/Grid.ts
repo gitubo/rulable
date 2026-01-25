@@ -1,5 +1,6 @@
 /**
  * Infinite grid background implementation using SVG patterns.
+ * Provides visual reference for the canvas with dynamic sizing.
  */
 import * as d3 from 'd3';
 import { Transform } from '../core/types';
@@ -9,7 +10,12 @@ export class Grid {
   private svg: d3.Selection<SVGSVGElement, unknown, null, undefined>;
   private gridGroup: d3.Selection<SVGGElement, unknown, null, undefined>;
   private defs: d3.Selection<SVGDefsElement, unknown, null, undefined>;
+  private gridRect: d3.Selection<SVGRectElement, unknown, null, undefined> | null = null;
   
+  /**
+   * Creates a new Grid instance.
+   * @param svg - SVG element to render grid into
+   */
   constructor(svg: SVGSVGElement) {
     this.svg = d3.select(svg);
     
@@ -28,6 +34,10 @@ export class Grid {
     this.renderGrid();
   }
   
+  /**
+   * Creates the repeating grid pattern definition.
+   * Uses small dots at grid intersections.
+   */
   private createGridPattern(): void {
     // Remove existing pattern if any
     this.defs.select('#grid-pattern').remove();
@@ -46,26 +56,59 @@ export class Grid {
       .attr('fill', Config.GRID_COLOR);
   }
   
+  /**
+   * Renders the grid background rectangle.
+   * Initializes with large dimensions, updated dynamically on transform.
+   */
   private renderGrid(): void {
     this.gridGroup.selectAll('*').remove();
     
-    // Huge rectangle to cover visible area (simulating infinite)
-    // In a real infinite canvas, this might need dynamic resizing based on viewport
-    this.gridGroup.append('rect')
+    // Start with reasonable default
+    this.gridRect = this.gridGroup.append('rect')
       .attr('class', 'grid-background')
-      .attr('x', -50000)
-      .attr('y', -50000)
-      .attr('width', 100000)
-      .attr('height', 100000)
-      .attr('fill', 'url(#grid-pattern)');
+      .attr('x', -10000)
+      .attr('y', -10000)
+      .attr('width', 20000)
+      .attr('height', 20000)
+      .attr('fill', 'url(#grid-pattern)')
+      .attr('pointer-events', 'none');
   }
   
+  /**
+   * Updates grid transform and expands size based on viewport.
+   * Ensures grid coverage even at extreme zoom/pan levels.
+   * @param transform - Current viewport transform
+   */
   update(transform: Transform): void {
     this.gridGroup.attr('transform', 
       `translate(${transform.x},${transform.y}) scale(${transform.k})`
     );
+    
+    // Dynamically expand grid if viewport is zoomed out significantly
+    if (this.gridRect && transform.k < 0.5) {
+      const expansion = 1 / transform.k;
+      const size = 20000 * expansion;
+      const offset = -size / 2;
+      
+      this.gridRect
+        .attr('x', offset)
+        .attr('y', offset)
+        .attr('width', size)
+        .attr('height', size);
+    } else if (this.gridRect && transform.k >= 0.5) {
+      // Reset to default size for normal zoom levels
+      this.gridRect
+        .attr('x', -10000)
+        .attr('y', -10000)
+        .attr('width', 20000)
+        .attr('height', 20000);
+    }
   }
   
+  /**
+   * Shows or hides the grid.
+   * @param visible - Whether grid should be visible
+   */
   setVisible(visible: boolean): void {
     this.gridGroup.style('display', visible ? null : 'none');
   }
