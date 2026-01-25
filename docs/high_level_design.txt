@@ -1,0 +1,1698 @@
+High-Level Design Documentation
+Diagram Editor Widget - TypeScript Architecture
+
+1. Executive Summary
+This document provides a comprehensive high-level architectural design for the Diagram Editor Widget, a modular, plugin-based visual graph editor. The system is designed using TypeScript to ensure type safety, maintainability, and scalability. The architecture follows SOLID principles, implements Command-Query Separation (CQS), and uses an event-driven pattern for loose coupling between components.
+The widget enables users to create, manipulate, and traverse directed acyclic graphs (DAGs) through an interactive SVG-based canvas. It supports dynamic plugin loading, undo/redo functionality, serialization, and multiple rendering strategies.
+
+2. Architectural Principles
+2.1 Core Design Principles
+
+Command-Query Separation (CQS)
+
+Strict separation between state mutations (Commands) and data retrieval (Queries)
+Commands return void and emit events
+Queries return immutable data copies with no side effects
+
+
+Single Responsibility Principle
+
+Each class/module has one well-defined purpose
+Services are cohesive and focused
+
+
+Open/Closed Principle
+
+Core system closed for modification, open for extension via plugins
+Plugin registry enables dynamic feature addition
+
+
+Dependency Inversion
+
+High-level modules depend on abstractions (interfaces)
+Concrete implementations injected via dependency injection
+
+
+Event-Driven Architecture
+
+Components communicate through events, not direct coupling
+Central EventBus coordinates system-wide notifications
+
+
+
+2.2 TypeScript-Specific Considerations
+
+Type Safety
+
+All public APIs use strong typing with interfaces
+Generic types for plugin definitions
+Discriminated unions for state representation
+Type guards for runtime validation
+
+
+Immutability
+
+Readonly modifiers for data structures
+Deep freezing for exported state
+Structural sharing for performance
+
+
+Null Safety
+
+Strict null checks enabled
+Optional chaining and nullish coalescing
+Explicit handling of undefined values
+
+
+
+
+3. System Architecture Overview
+3.1 Layered Architecture
+┌─────────────────────────────────────────────────────────────┐
+│                     Presentation Layer                       │
+│  (UI Components, Canvas Rendering, User Interactions)       │
+├─────────────────────────────────────────────────────────────┤
+│                      Application Layer                       │
+│     (Widget Facade, Command/Query Handlers, Events)         │
+├─────────────────────────────────────────────────────────────┤
+│                       Domain Layer                           │
+│  (State Management, Graph Logic, Validation, History)       │
+├─────────────────────────────────────────────────────────────┤
+│                    Infrastructure Layer                      │
+│   (Plugin System, Serialization, Rendering Engine, I/O)     │
+└─────────────────────────────────────────────────────────────┘
+3.2 Module Structure
+src/
+├── core/                    # Core system components
+│   ├── Widget.ts           # Main widget entry point & facade
+│   ├── EventBus.ts         # Event coordination
+│   ├── Registry.ts         # Plugin registration
+│   ├── State.ts            # State management & store
+│   ├── SelectionManager.ts # Selection state
+│   ├── Config.ts           # Configuration constants
+│   └── types/              # Core TypeScript types
+│       ├── graph.types.ts
+│       ├── plugin.types.ts
+│       ├── event.types.ts
+│       └── api.types.ts
+│
+├── domain/                  # Domain logic
+│   ├── models/             # Domain entities
+│   │   ├── Node.ts
+│   │   ├── Connection.ts
+│   │   ├── Handler.ts
+│   │   └── Note.ts
+│   ├── validation/         # Business rules
+│   │   └── ConnectionValidator.ts
+│   └── strategies/         # Graph traversal
+│       └── TraverseStrategy.ts
+│
+├── services/               # Application services
+│   ├── HistoryManager.ts   # Undo/redo with delta patching
+│   ├── SerializationService.ts
+│   ├── TraverseService.ts
+│   ├── InputSystem.ts      # Input state machine
+│   └── PluginLoader.ts
+│
+├── rendering/              # Rendering subsystem
+│   ├── RenderEngine.ts     # Main render loop
+│   ├── NodeRenderer.ts     # Node visualization
+│   ├── LinkRenderer.ts     # Connection rendering
+│   ├── geometry/           # Path calculations
+│   │   ├── PathCalculator.ts
+│   │   ├── BezierPath.ts
+│   │   ├── OrthogonalPath.ts
+│   │   └── StraightPath.ts
+│   └── Grid.ts
+│
+├── components/             # UI Components
+│   ├── PropertiesPanel.ts
+│   ├── ZoomControls.ts
+│   ├── ContextMenu.ts
+│   ├── InlineEditor.ts
+│   └── NodePalette.ts
+│
+├── plugins/                # Plugin ecosystem
+│   ├── nodes/             # Node type plugins
+│   ├── handlers/          # Handler type plugins
+│   ├── connections/       # Connection plugins
+│   ├── strategies/        # Traversal strategies
+│   └── manifest.json      # Plugin metadata
+│
+└── utils/                  # Shared utilities
+    ├── DeepClone.ts
+    ├── CoordinateTransform.ts
+    └── TextTruncation.ts
+
+4. Core Components Detail
+4.1 Widget (Entry Point & Facade)
+Responsibility: Main public API, initialization orchestration, dependency composition
+Key Interfaces:
+typescriptinterface WidgetConfig {
+  container: HTMLElement | string;
+  width?: string | number;
+  height?: string | number;
+  showDefaultUI?: boolean;
+  initialZoom?: number;
+  initialOffset?: { x: number; y: number };
+  manifestUrl?: string;
+}
+
+interface WidgetAPI {
+  readonly commands: WidgetCommands;
+  readonly queries: WidgetQueries;
+}
+
+class DAGWidget {
+  public readonly api: WidgetAPI;
+  
+  constructor(config: WidgetConfig);
+  
+  // Event subscription
+  subscribe(callback: EventCallback): UnsubscribeFn;
+  
+  // Legacy dispatch (backwards compatibility)
+  dispatch(command: string, payload?: unknown): unknown;
+}
+Design Decisions:
+
+Constructor initializes all services with dependency injection
+API exposed through commands and queries namespaces (CQS)
+Legacy dispatch method maintained for backwards compatibility
+Event subscription returns unsubscribe function (functional pattern)
+
+Dependencies:
+
+EventBus (event coordination)
+Registry (plugin management)
+Store (state management)
+RenderEngine (visualization)
+UIController (optional, for default UI)
+PluginLoader (dynamic loading)
+
+
+4.2 State Management (Store)
+Responsibility: Centralized state container, mutation coordination, cache management
+Key Interfaces:
+typescriptinterface GraphState {
+  readonly nodes: ReadonlyArray<NodeInstance>;
+  readonly links: ReadonlyArray<ConnectionInstance>;
+  readonly notes: ReadonlyArray<NoteInstance>;
+  readonly transform: Readonly<Transform>;
+}
+
+interface Transform {
+  readonly k: number; // scale
+  readonly x: number; // translate X
+  readonly y: number; // translate Y
+}
+
+interface StoreCache {
+  handlerAbsolutePositions: Map<HandlerId, AbsolutePosition>;
+  nodeToLinks: Map<NodeId, ConnectionInstance[]>;
+}
+
+class Store {
+  private state: GraphState;
+  private cache: StoreCache;
+  
+  // State accessors (immutable copies)
+  getNode(id: NodeId): Readonly<NodeInstance> | null;
+  getLink(id: ConnectionId): Readonly<ConnectionInstance> | null;
+  
+  // Mutations (emit events after change)
+  addNode(type: string, x: number, y: number, data?: unknown): NodeInstance;
+  removeNode(id: NodeId): void;
+  updateNode(id: NodeId, changes: Partial<NodeData>): void;
+  
+  addLink(sourceHandlerId: HandlerId, targetHandlerId: HandlerId): ConnectionInstance;
+  removeLink(id: ConnectionId): void;
+  updateLink(id: ConnectionId, changes: Partial<ConnectionData>): void;
+  
+  // History integration
+  private snapshot(): void;
+  undo(): void;
+  redo(): void;
+  
+  // Cache management
+  private rebuildCache(): void;
+  getLinksForNode(nodeId: NodeId): ReadonlyArray<ConnectionInstance>;
+}
+Design Decisions:
+
+Immutable public API prevents external mutations
+Snapshot-based history integration
+Lazy cache rebuilding on topology changes
+Separation of persistent state and transient UI state
+
+Performance Optimizations:
+
+Handler position cache avoids recalculation during rendering
+Node-to-links map enables O(1) link queries
+Cache invalidation only on structural changes
+
+
+4.3 Event System
+Responsibility: Decoupled communication, event propagation, subscription management
+Key Interfaces:
+typescripttype EventType = 
+  | 'NODE_CREATED'
+  | 'NODE_UPDATED'
+  | 'NODE_REMOVED'
+  | 'NODE_MOVED'
+  | 'CONNECTION_CREATED'
+  | 'CONNECTION_UPDATED'
+  | 'CONNECTION_REMOVED'
+  | 'SELECTION_CHANGED'
+  | 'HISTORY_CHANGED'
+  | 'STATE_LOADED'
+  | 'PLUGINS_LOADED'
+  | 'TRAVERSE_COMPLETED'
+  | 'TRAVERSE_ERROR';
+
+interface EventPayload {
+  NODE_CREATED: NodeInstance;
+  NODE_UPDATED: NodeInstance;
+  NODE_REMOVED: NodeId;
+  NODE_MOVED: { id: NodeId; from: Position; to: Position };
+  CONNECTION_CREATED: ConnectionInstance;
+  CONNECTION_UPDATED: ConnectionInstance;
+  CONNECTION_REMOVED: ConnectionId;
+  SELECTION_CHANGED: Selection | null;
+  HISTORY_CHANGED: { canUndo: boolean; canRedo: boolean };
+  STATE_LOADED: GraphState;
+  PLUGINS_LOADED: void;
+  TRAVERSE_COMPLETED: { strategy: string; result: unknown };
+  TRAVERSE_ERROR: { message: string };
+}
+
+type EventCallback<T extends EventType> = (payload: EventPayload[T]) => void;
+
+class EventBus {
+  on<T extends EventType>(event: T, callback: EventCallback<T>): void;
+  off<T extends EventType>(event: T, callback: EventCallback<T>): void;
+  emit<T extends EventType>(event: T, payload: EventPayload[T]): void;
+}
+Design Decisions:
+
+Type-safe event system with discriminated unions
+Generic event callbacks ensure type safety
+Synchronous event emission (predictable order)
+No event bubbling/capturing (flat structure)
+
+
+4.4 Plugin System
+4.4.1 Registry
+Responsibility: Plugin registration, validation, lifecycle management
+Key Interfaces:
+typescriptinterface PluginDefinition<T = unknown> {
+  readonly type: string;
+  readonly role?: string;
+}
+
+interface NodePluginDefinition extends PluginDefinition {
+  readonly role: NodeRole;
+  hasTargetHandlers(): boolean;
+  getIconPath(): string;
+  schema?: PropertySchema;
+}
+
+interface HandlerPluginDefinition extends PluginDefinition {
+  readonly flow: FlowType;
+  readonly dimensions: Dimensions;
+}
+
+interface StrategyPluginDefinition extends PluginDefinition {
+  sortNodes(nodes: NodeInstance[], links: ConnectionInstance[]): NodeInstance[];
+  getVisitors(): VisitorMap;
+  getInitialAggregator(): unknown;
+}
+
+class Registry {
+  registerNode<T extends NodePluginDefinition>(type: string, definition: T): void;
+  registerHandler<T extends HandlerPluginDefinition>(type: string, definition: T): void;
+  registerStrategy<T extends StrategyPluginDefinition>(type: string, definition: T): void;
+  registerConnection<T extends ConnectionPluginDefinition>(type: string, definition: T): void;
+  
+  getNodeDefinition(type: string): NodePluginDefinition | null;
+  getHandlerDefinition(type: string): HandlerPluginDefinition | null;
+  getStrategy(type: string): StrategyPluginDefinition | null;
+  
+  private validateInterface<T>(definition: T, category: PluginCategory): void;
+}
+Validation Strategy:
+
+Interface validation at registration time
+Type checks for required static methods
+Schema validation for data properties
+Fail-fast on invalid plugins
+
+4.4.2 Plugin Loader
+Responsibility: Dynamic plugin loading, manifest parsing, dependency resolution
+Key Interfaces:
+typescriptinterface PluginManifest {
+  [bundleName: string]: PluginBundle;
+}
+
+interface PluginBundle {
+  description: string;
+  nodes?: string[];
+  handlers?: string[];
+  strategies?: string[];
+  connections?: string[];
+  styles?: string[];
+  config?: Record<string, unknown>;
+}
+
+class PluginLoader {
+  constructor(private registry: Registry);
+  
+  async loadFromManifest(manifestUrl: string): Promise<void>;
+  
+  private async loadPluginBundle(
+    name: string, 
+    bundle: PluginBundle, 
+    basePath: string
+  ): Promise<void>;
+  
+  private async loadModules(
+    files: string[], 
+    category: PluginCategory, 
+    basePath: string
+  ): Promise<void>;
+  
+  private injectStyle(href: string): void;
+}
+Loading Sequence:
+
+Fetch manifest JSON
+Parse bundle definitions
+Load styles (inject <link> tags)
+Load JavaScript modules (ES6 import)
+Validate and register plugins
+Emit PLUGINS_LOADED event
+
+
+4.5 Rendering System
+4.5.1 Render Engine
+Responsibility: Main render loop, dirty tracking, layer management
+Key Interfaces:
+typescriptinterface RenderState {
+  isDirty: boolean;
+  isGhostDirty: boolean;
+  rafId: number | null;
+}
+
+class RenderEngine {
+  private state: RenderState;
+  
+  constructor(
+    private svg: SVGSVGElement,
+    private store: Store,
+    private registry: Registry,
+    private eventBus: EventBus
+  );
+  
+  startRenderLoop(): void;
+  stopRenderLoop(): void;
+  
+  render(): void;
+  renderGhost(): void;
+  updateLinksOnly(nodeId?: NodeId): void;
+  updateSelectionStyles(): void;
+  
+  private renderNodes(): void;
+  private renderLinks(): void;
+  private renderLabels(): void;
+}
+```
+
+**Rendering Pipeline**:
+```
+Event → Set Dirty Flag → Next Frame → Render → Clear Flag
+Optimization Strategy:
+
+Dirty flags prevent unnecessary renders
+Separate high-frequency updates (drag) from full renders
+Layer-based rendering (grid → notes → links → labels → nodes)
+Selective link updates during node movement
+
+4.5.2 Node Renderer
+Responsibility: SVG generation for nodes, handlers, labels
+Key Interfaces:
+typescriptinterface RenderContext {
+  selection: d3.Selection<SVGGElement, NodeInstance, null, undefined>;
+  node: NodeInstance;
+  registry: Registry;
+  store: Store;
+}
+
+class NodeRenderer {
+  renderBody(context: RenderContext): void;
+  renderHandlers(context: RenderContext): void;
+  renderIcon(context: RenderContext): void;
+  renderLabels(context: RenderContext): void;
+  
+  private applyAttributes(
+    selection: d3.Selection,
+    entity: NodeInstance | HandlerInstance
+  ): void;
+  
+  private truncateText(
+    textSelection: d3.Selection<SVGTextElement>,
+    maxWidth: number
+  ): void;
+}
+Template System:
+
+Plugins provide SVG path templates
+Templates support dynamic dimensions
+Attributes applied via getShapeAttributes()
+CSS classes enable styling override
+
+4.5.3 Geometry Engine
+Responsibility: Path calculation, coordinate transformation, spatial queries
+Key Interfaces:
+typescriptenum ConnectionPathType {
+  BEZIER = 'bezier',
+  SMOOTH_STEP = 'smooth_step',
+  STRAIGHT = 'straight'
+}
+
+interface PathEndpoint {
+  x: number;
+  y: number;
+  direction: Direction;
+  vector: Vector2D;
+}
+
+interface PathCalculationOptions {
+  pathType: ConnectionPathType;
+  clearance?: number;
+  cornerRadius?: number;
+}
+
+class PathCalculator {
+  calculatePath(
+    connection: ConnectionInstance,
+    nodes: NodeInstance[],
+    options?: PathCalculationOptions
+  ): string;
+  
+  calculatePositionAlongPath(
+    connection: ConnectionInstance,
+    t: number, // 0.0 to 1.0
+    nodes: NodeInstance[]
+  ): Position;
+  
+  findClosestTOnPath(
+    connection: ConnectionInstance,
+    targetPoint: Position,
+    nodes: NodeInstance[],
+    precision?: number
+  ): number;
+  
+  private resolveEndpoints(
+    connection: ConnectionInstance,
+    nodes: NodeInstance[]
+  ): { source: PathEndpoint; target: PathEndpoint } | null;
+}
+
+class BezierPathStrategy implements PathStrategy {
+  calculate(source: PathEndpoint, target: PathEndpoint): string;
+  private calculateControlPoints(source: PathEndpoint, target: PathEndpoint): [Position, Position];
+}
+
+class OrthogonalPathStrategy implements PathStrategy {
+  calculate(source: PathEndpoint, target: PathEndpoint): string;
+  private buildOrthogonalPoints(source: PathEndpoint, target: PathEndpoint): Position[];
+  private routeVerticalVertical(...): void;
+  private routeHorizontalHorizontal(...): void;
+  private routeVerticalHorizontal(...): void;
+  private routeHorizontalVertical(...): void;
+  private filterColinearPoints(points: Position[]): Position[];
+  private applyRoundedCorners(points: Position[], radius: number): string;
+}
+Path Calculation Algorithm (Orthogonal Routing):
+
+Calculate escape points with clearance zones
+Determine axis alignment (horizontal/vertical)
+Route based on facing direction and available space
+Filter co-linear points for optimization
+Apply rounded corners at waypoints
+Generate SVG path string
+
+Bezier Calculation (Adaptive):
+
+Calculate distance between endpoints
+Determine base curvature (50% of distance)
+Enforce minimum clearance
+Detect backtracking (dot product check)
+Boost curvature for difficult geometry
+Calculate control points along handler vectors
+
+
+4.6 History Management
+Responsibility: Undo/redo with delta patching, state snapshots
+Key Interfaces:
+typescriptinterface StateDelta {
+  nodes: Record<NodeId, { old?: NodeData; new?: NodeData }>;
+  connections: Record<ConnectionId, { old?: ConnectionData; new?: ConnectionData }>;
+  viewport?: Transform;
+}
+
+class HistoryManager {
+  private undoStack: StateDelta[];
+  private redoStack: StateDelta[];
+  private headState: SerializedState | null;
+  private maxDepth: number;
+  
+  constructor(
+    maxDepth: number,
+    private serialize: (state: GraphState) => SerializedState,
+    private deserialize: (data: SerializedState) => GraphState
+  );
+  
+  save(newState: GraphState): void;
+  undo(): GraphState | null;
+  redo(): GraphState | null;
+  
+  canUndo(): boolean;
+  canRedo(): boolean;
+  reset(): void;
+  
+  private diff(oldState: SerializedState, newState: SerializedState): StateDelta;
+  private applyPatch(state: SerializedState, delta: StateDelta): SerializedState;
+  private applyInversePatch(state: SerializedState, delta: StateDelta): SerializedState;
+  private isEmptyPatch(delta: StateDelta): boolean;
+}
+Delta Strategy:
+
+Store only changed properties (forward/backward)
+Ignore zero-change saves (optimization)
+Apply inverse patches for undo
+Apply forward patches for redo
+Stack depth limit with oldest entry dropping
+
+Performance Characteristics:
+
+O(1) save operation (diff calculation)
+O(n) undo/redo where n = number of changes in delta
+Memory usage proportional to change rate, not graph size
+
+
+4.7 Input System (State Machine)
+Responsibility: User interaction handling, state transitions
+Key Interfaces:
+typescriptabstract class InteractionState {
+  constructor(protected context: InputSystem);
+  
+  onMouseDown(event: MouseEvent): void;
+  onMouseMove(event: MouseEvent): void;
+  onMouseUp(event: MouseEvent): void;
+}
+
+class IdleState extends InteractionState {
+  onMouseDown(event: MouseEvent): void {
+    // Detect target (node, handler, label, background)
+    // Transition to appropriate state
+  }
+}
+
+class NodeDragState extends InteractionState {
+  constructor(
+    context: InputSystem,
+    private node: NodeInstance,
+    private initialPosition: Position,
+    private startMouse: Position
+  );
+  
+  onMouseMove(event: MouseEvent): void {
+    // Update node position (high-frequency, no snapshot)
+  }
+  
+  onMouseUp(event: MouseEvent): void {
+    // Apply grid snapping
+    // Commit to history
+    // Transition to IdleState
+  }
+}
+
+class ConnectionCreationState extends InteractionState {
+  constructor(
+    context: InputSystem,
+    private sourceHandler: HandlerInstance
+  );
+  
+  onMouseMove(event: MouseEvent): void {
+    // Update ghost connection
+  }
+  
+  onMouseUp(event: MouseEvent): void {
+    // Validate target handler
+    // Create connection if valid
+    // Clear ghost
+    // Transition to IdleState
+  }
+}
+
+class LinkLabelDragState extends InteractionState {
+  onMouseMove(event: MouseEvent): void {
+    // Calculate closest t on path
+    // Update label offset
+  }
+  
+  onMouseUp(event: MouseEvent): void {
+    // Commit offset change
+    // Transition to IdleState
+  }
+}
+
+class InputSystem {
+  private currentState: InteractionState;
+  
+  constructor(
+    private svg: SVGSVGElement,
+    private store: Store,
+    private eventBus: EventBus,
+    private registry: Registry
+  );
+  
+  setState(newState: InteractionState): void;
+  attachEvents(): void;
+  
+  getMousePosition(event: MouseEvent): Position;
+  handleContextMenu(event: MouseEvent): void;
+}
+```
+
+**State Diagram**:
+```
+         [Idle]
+           │
+     ┌─────┼─────┬─────────┐
+     │     │     │         │
+     ↓     ↓     ↓         ↓
+ [NodeDrag] [ConnCreate] [LabelDrag]
+     │     │     │         │
+     └─────┴─────┴─────────┘
+           │
+         [Idle]
+Design Decisions:
+
+State pattern prevents conditional explosion
+Each state handles only relevant events
+Context provides shared services (store, transform)
+Clean transitions ensure no orphaned state
+
+
+5. Command-Query API Design
+5.1 Command Interface
+Principle: Commands mutate state and return void. Success/failure communicated via events.
+typescriptinterface WidgetCommands {
+  // Plugin Management
+  loadPlugins(url?: string): void;
+  
+  // Graph Construction
+  createNode(payload: CreateNodePayload): void;
+  deleteNode(id: NodeId): void;
+  updateNode(payload: UpdateNodePayload): void;
+  spawnNodeConnected(payload: SpawnConnectedPayload): void;
+  
+  createLink(sourceHandlerId: HandlerId, targetHandlerId: HandlerId): void;
+  deleteLink(id: ConnectionId): void;
+  updateLink(payload: UpdateLinkPayload): void;
+  
+  createNote(x: number, y: number): void;
+  deleteNote(id: NoteId): void;
+  
+  // History
+  undo(): void;
+  redo(): void;
+  
+  // Viewport
+  zoomIn(): void;
+  zoomOut(): void;
+  zoomReset(): void;
+  zoomFit(): void;
+  
+  // Selection
+  selectObject(type: 'node' | 'link', id: string): void;
+  deselectAll(): void;
+  
+  // State Management
+  importState(data: SerializedState): void;
+  
+  // Traversal
+  traverseDiagram(payload: TraversePayload): Promise<void>;
+}
+
+interface CreateNodePayload {
+  type: string;
+  x: number;
+  y: number;
+  label?: string;
+  data?: Record<string, unknown>;
+}
+
+interface UpdateNodePayload {
+  id: NodeId;
+  label?: string;
+  note?: string;
+  style?: NodeStyle;
+  data?: Record<string, unknown>;
+}
+
+interface SpawnConnectedPayload {
+  type: string;
+  x: number;
+  y: number;
+  sourceHandlerId: HandlerId;
+}
+
+interface UpdateLinkPayload {
+  id: ConnectionId;
+  label?: LinkLabel;
+  style?: LinkStyle;
+}
+
+interface TraversePayload {
+  strategy: string;
+}
+5.2 Query Interface
+Principle: Queries return immutable data with no side effects.
+typescriptinterface WidgetQueries {
+  // Node Queries
+  getNode(id: NodeId): Readonly<NodeData> | null;
+  getAllNodesDefinition(): ReadonlyArray<NodeMetadata>;
+  getNodeIconPathData(type: string): string;
+  
+  // Link Queries
+  getLink(id: ConnectionId): Readonly<ConnectionData> | null;
+  
+  // State Queries
+  getGraphData(): Readonly<SerializedState>;
+}
+
+interface NodeMetadata {
+  readonly type: string;
+  readonly role: NodeRole;
+}
+
+interface NodeData {
+  readonly id: NodeId;
+  readonly type: string;
+  readonly label: string;
+  readonly note: string;
+  readonly position: Readonly<Position>;
+  readonly style: Readonly<NodeStyle>;
+  readonly data: Readonly<Record<string, unknown>>;
+  readonly handlers: ReadonlyArray<HandlerData>;
+}
+
+interface ConnectionData {
+  readonly id: ConnectionId;
+  readonly type: string;
+  readonly sourceHandlerId: HandlerId;
+  readonly targetHandlerId: HandlerId;
+  readonly pathType: ConnectionPathType;
+  readonly label?: Readonly<LinkLabel>;
+  readonly style: Readonly<LinkStyle>;
+  readonly data: Readonly<Record<string, unknown>>;
+}
+
+6. Type System Design
+6.1 Core Domain Types
+typescript// Primitive Types
+type NodeId = string & { readonly __brand: 'NodeId' };
+type ConnectionId = string & { readonly __brand: 'ConnectionId' };
+type HandlerId = string & { readonly __brand: 'HandlerId' };
+type NoteId = string & { readonly __brand: 'NoteId' };
+
+// Enums
+enum NodeRole {
+  CORE = 'Core',
+  DATA = 'Data',
+  TOOLS = 'Tools',
+  LOGIC = 'Logic',
+  AGENT = 'Agent'
+}
+
+enum FlowType {
+  IN = 'in',
+  OUT = 'out',
+  BI = 'bi',
+  ANY = 'any'
+}
+
+enum Direction {
+  LEFT = 'left',
+  RIGHT = 'right',
+  TOP = 'top',
+  BOTTOM = 'bottom',
+  OMNI = 'omni'
+}
+
+// Value Objects
+interface Position {
+  readonly x: number;
+  readonly y: number;
+}
+
+interface Dimensions {
+  readonly width: number;
+  readonly height: number;
+}
+
+interface Vector2D {
+  readonly x: number;
+  readonly y: number;
+}
+
+// Styles
+interface NodeStyle {
+  readonly fontSize?: number;
+  readonly fill?: string;
+  readonly stroke?: string;
+  readonly strokeWidth?: number;
+}
+
+interface LinkStyle {
+  readonly stroke: string;
+  readonly strokeWidth: number;
+  readonly strokeDasharray?: string;
+}
+
+interface LinkLabel {
+  text: string;
+  offset: number; // 0.0 to 1.0
+  color?: string;
+  bgColor?: string;
+  fontSize?: number;
+}
+6.2 Plugin Type Definitions
+typescriptinterface NodeInstance {
+  readonly id: NodeId;
+  readonly type: string;
+  readonly role: NodeRole;
+  label: string;
+  note: string;
+  readonly position: Position;
+  readonly width: number;
+  readonly height: number;
+  style: NodeStyle;
+  data: Record<string, unknown>;
+  readonly handlers: HandlerInstance[];
+  
+  // Methods
+  getShapeTemplate(): string;
+  getShapeAttributes(): Record<string, unknown> | null;
+  getDimensions(): Dimensions;
+  getData(): NodeData;
+}
+
+interface HandlerInstance {
+  readonly id: HandlerId;
+  readonly type: string;
+  readonly flow: FlowType;
+  readonly role: 'source' | 'target' | '';
+  readonly offset: Position;
+  readonly direction: Direction;
+  readonly dimensions: Dimensions;
+  label: string;
+  
+  // Rendering
+  getShapeTemplate(): string;
+  getShapeAttributes(): Record<string, unknown> | null;
+  renderLabel(group: d3.Selection): void;
+  renderExtras(group: d3.Selection, state: RenderState): void;
+  
+  // Serialization
+  getData(): HandlerData;
+}
+
+interface ConnectionInstance {
+  readonly id: ConnectionId;
+  readonly type: string;
+  sourceHandlerId: HandlerId;
+  targetHandlerId: HandlerId;
+  pathType: ConnectionPathType;
+  style: LinkStyle;
+  label?: LinkLabel;
+  data: Record<string, unknown>;
+  
+  // Methods
+  getPath(nodes: NodeInstance[], registry: Registry): string;
+  update(changes: Partial<ConnectionData>): void;
+  getData(): ConnectionData;
+}
+
+interface PropertySchema {
+  [key: string]: PropertyFieldDefinition;
+}
+
+interface PropertyFieldDefinition {
+  type: 'text' | 'number' | 'boolean' | 'select';
+  label: string;
+  default?: unknown;
+  options?: string[]; // for select type
+}
+6.3 Event Type System
+typescriptinterface EventPayloadMap {
+  NODE_CREATED: NodeInstance;
+  NODE_UPDATED: NodeInstance;
+  NODE_REMOVED: NodeId;
+  NODE_MOVED: NodeMovedPayload;
+  CONNECTION_CREATED: ConnectionInstance;
+  CONNECTION_UPDATED: ConnectionInstance;
+  CONNECTION_REMOVED: ConnectionId;
+  SELECTION_CHANGED: Selection | null;
+  HISTORY_CHANGED: HistoryStatus;
+  STATE_LOADED: GraphState;
+  PLUGINS_LOADED: void;
+  TRAVERSE_COMPLETED: TraverseResult;
+  TRAVERSE_ERROR: ErrorPayload;
+  RENDER_REQUESTED: void;
+  NOTE_CREATED: NoteInstance;
+  NOTE_UPDATED: NoteInstance;
+  NOTE_REMOVED: NoteId;
+}
+
+interface NodeMovedPayload {
+  readonly id: NodeId;
+  readonly from: Position;
+  readonly to: Position;
+}
+
+interface Selection {
+  readonly type: 'node' | 'link' | 'note';
+  readonly id: string;
+}
+
+interface HistoryStatus {
+  readonly canUndo: boolean;
+  readonly canRedo: boolean;
+}
+
+interface TraverseResult {
+  readonly strategy: string;
+  readonly result: unknown;
+}
+interface ErrorPayload {
+readonly message: string;
+readonly code?: string;
+}
+type EventType = keyof EventPayloadMap;
+
+---
+
+## 7. Data Flow Patterns
+
+### 7.1 State Mutation Flow
+User Action
+↓
+Input System (State Machine)
+↓
+Command (via API or internal event)
+↓
+Store Mutation
+↓
+Cache Invalidation (if needed)
+↓
+Event Emission
+↓
+├─→ Render Engine (set dirty flag)
+├─→ History Manager (snapshot)
+├─→ External Subscribers
+└─→ UI Components (update state)
+
+### 7.2 Rendering Flow
+Event (STATE_UPDATED, NODE_MOVED, etc.)
+↓
+Set Dirty Flag
+↓
+Request Animation Frame
+↓
+Render Loop Check
+↓
+Full Render (if isDirty)
+↓
+├─→ Update Selection Styles
+├─→ Render Nodes (enter/update/exit)
+├─→ Render Links (enter/update/exit)
+└─→ Render Labels
+↓
+Clear Dirty Flag
+
+### 7.3 Plugin Loading Flow
+Widget Initialization
+↓
+Load Plugin Manifest (fetch JSON)
+↓
+For Each Bundle:
+├─→ Inject CSS Styles
+├─→ Import JavaScript Modules
+├─→ Validate Plugin Interface
+├─→ Register in Registry
+└─→ Emit PLUGIN_REGISTERED
+↓
+Emit PLUGINS_LOADED
+↓
+Load Demo Data (optional)
+
+---
+
+## 8. Performance Optimization Strategy
+
+### 8.1 Rendering Optimizations
+
+1. **Dirty Flag Pattern**
+   - Avoid unnecessary renders
+   - Batch DOM updates
+
+2. **Selective Updates**
+   - Update only affected links during node drag
+   - Separate high-frequency updates from full renders
+
+3. **Virtual Rendering**
+   - Use D3's enter/update/exit pattern
+   - Reuse SVG elements where possible
+
+4. **Transform Optimization**
+   - Use CSS transforms for drag operations
+   - Commit to DOM only on interaction end
+
+### 8.2 State Management Optimizations
+
+1. **Caching**
+   - Handler absolute positions
+   - Node-to-links relationships
+   - Path calculations (future enhancement)
+
+2. **Lazy Invalidation**
+   - Rebuild caches only on topology changes
+   - Defer expensive computations
+
+3. **Immutability**
+   - Structural sharing for unchanged data
+   - Clone only modified subtrees
+
+### 8.3 History Optimizations
+
+1. **Delta Patching**
+   - Store only changed properties
+   - Avoid full state copies
+
+2. **Zero-Change Detection**
+   - Ignore saves with no deltas
+   - Prevent history pollution from clicks
+
+3. **Stack Depth Limiting**
+   - Configurable maximum depth
+   - FIFO eviction of oldest entries
+
+### 8.4 Event System Optimizations
+
+1. **Debouncing**
+   - High-frequency events (mouse move) use separate channels
+   - Commit events only on interaction end
+
+2. **Event Batching**
+   - Group related events where applicable
+   - Emit consolidated notifications
+
+---
+
+## 9. Validation and Error Handling
+
+### 9.1 Connection Validation
+```typescript
+interface ConnectionValidationRule {
+  isValid(source: HandlerInstance, target: HandlerInstance): boolean;
+}
+
+class FlowValidationRule implements ConnectionValidationRule {
+  private static readonly VALID_CONNECTIONS: Record<FlowType, FlowType[]> = {
+    [FlowType.IN]: [FlowType.OUT, FlowType.ANY],
+    [FlowType.OUT]: [FlowType.IN, FlowType.ANY],
+    [FlowType.BI]: [FlowType.BI, FlowType.ANY],
+    [FlowType.ANY]: [FlowType.IN, FlowType.OUT, FlowType.BI, FlowType.ANY]
+  };
+  
+  isValid(source: HandlerInstance, target: HandlerInstance): boolean {
+    if (source.id === target.id) return false;
+    
+    const allowedTargets = FlowValidationRule.VALID_CONNECTIONS[source.flow];
+    return allowedTargets.includes(target.flow);
+  }
+}
+
+class ConnectionValidator {
+  private rules: ConnectionValidationRule[] = [
+    new FlowValidationRule(),
+    // Add more rules as needed
+  ];
+  
+  validate(source: HandlerInstance, target: HandlerInstance): ValidationResult {
+    for (const rule of this.rules) {
+      if (!rule.isValid(source, target)) {
+        return { valid: false, reason: rule.constructor.name };
+      }
+    }
+    return { valid: true };
+  }
+}
+```
+
+### 9.2 Plugin Validation
+```typescript
+interface PluginValidationError {
+  plugin: string;
+  category: PluginCategory;
+  missing: string[];
+}
+
+class PluginValidator {
+  validate<T extends PluginDefinition>(
+    definition: T,
+    category: PluginCategory
+  ): ValidationResult {
+    const requiredMembers = this.getRequiredMembers(category);
+    const missing: string[] = [];
+    
+    for (const member of requiredMembers) {
+      if (!(member in definition) && !(member in definition.constructor)) {
+        missing.push(member);
+      }
+    }
+    
+    if (!definition.type) {
+      missing.push('static get type()');
+    }
+    
+    if (missing.length > 0) {
+      return {
+        valid: false,
+        error: {
+          plugin: definition.constructor.name,
+          category,
+          missing
+        }
+      };
+    }
+    
+    return { valid: true };
+  }
+  
+  private getRequiredMembers(category: PluginCategory): string[] {
+    const interfaces: Record<PluginCategory, string[]> = {
+      node: ['type', 'role', 'getIconPath', 'getShapeTemplate'],
+      handler: ['type', 'getShapeTemplate'],
+      strategy: ['type', 'getVisitors', 'sortNodes', 'getInitialAggregator'],
+      connection: ['type', 'getData']
+    };
+    return interfaces[category] || [];
+  }
+}
+```
+
+### 9.3 Runtime Error Handling
+```typescript
+class ErrorBoundary {
+  handle(error: Error, context: string): void {
+    console.error(`[${context}]`, error);
+    
+    // Categorize error
+    if (error instanceof ValidationError) {
+      this.handleValidationError(error);
+    } else if (error instanceof PluginLoadError) {
+      this.handlePluginError(error);
+    } else {
+      this.handleGenericError(error, context);
+    }
+  }
+  
+  private handleValidationError(error: ValidationError): void {
+    // Show user-friendly message
+    // Prevent invalid state mutation
+  }
+  
+  private handlePluginError(error: PluginLoadError): void {
+    // Log failed plugin
+    // Continue with available plugins
+  }
+  
+  private handleGenericError(error: Error, context: string): void {
+    // Log to error tracking service
+    // Show generic error UI
+  }
+}
+```
+
+---
+
+## 10. Serialization Strategy
+
+### 10.1 Export Format
+```typescript
+interface SerializedState {
+  metadata: {
+    version: string;
+    createdAt: string;
+    viewport: Transform;
+  };
+  nodes: Record<NodeId, SerializedNode>;
+  connections: Record<ConnectionId, SerializedConnection>;
+  notes?: Record<NoteId, SerializedNote>;
+}
+
+interface SerializedNode {
+  id: NodeId;
+  type: string;
+  label: string;
+  note: string;
+  data: Record<string, unknown>;
+  presentation: {
+    position: Position;
+    style: NodeStyle;
+  };
+  handles: Record<HandlerId, SerializedHandler>;
+}
+
+interface SerializedHandler {
+  id: HandlerId;
+  type: string;
+  label: string;
+  flow: FlowType;
+  presentation: {
+    offset: Position;
+    direction: Direction;
+  };
+}
+
+interface SerializedConnection {
+  id: ConnectionId;
+  type: string;
+  sourceHandlerId: HandlerId;
+  targetHandlerId: HandlerId;
+  pathType: ConnectionPathType;
+  label?: LinkLabel;
+  style: LinkStyle;
+  data: Record<string, unknown>;
+}
+```
+
+### 10.2 Deserialization Process
+```typescript
+class SerializationService {
+  constructor(private registry: Registry) {}
+  
+  serialize(state: GraphState): SerializedState {
+    return {
+      metadata: {
+        version: '1.0.0',
+        createdAt: new Date().toISOString(),
+        viewport: state.transform
+      },
+      nodes: this.serializeNodes(state.nodes),
+      connections: this.serializeConnections(state.links),
+      notes: this.serializeNotes(state.notes)
+    };
+  }
+  
+  deserialize(data: SerializedState): GraphState {
+    const nodes = this.deserializeNodes(data.nodes);
+    const links = this.deserializeConnections(data.connections, nodes);
+    const notes = this.deserializeNotes(data.notes);
+    
+    return {
+      nodes,
+      links,
+      notes,
+      transform: data.metadata.viewport || { k: 1, x: 0, y: 0 }
+    };
+  }
+  
+  private deserializeNodes(
+    nodesData: Record<NodeId, SerializedNode>
+  ): NodeInstance[] {
+    const instances: NodeInstance[] = [];
+    
+    for (const nodeData of Object.values(nodesData)) {
+      const NodeClass = this.registry.getNodeDefinition(nodeData.type);
+      if (!NodeClass) {
+        console.warn(`Unknown node type: ${nodeData.type}`);
+        continue;
+      }
+      
+      const instance = NodeClass.deserialize(nodeData, this.registry);
+      instances.push(instance);
+    }
+    
+    return instances;
+  }
+  
+  private deserializeConnections(
+    connectionsData: Record<ConnectionId, SerializedConnection>,
+    nodes: NodeInstance[]
+  ): ConnectionInstance[] {
+    const instances: ConnectionInstance[] = [];
+    
+    for (const connData of Object.values(connectionsData)) {
+      const ConnClass = this.registry.getConnectionDefinition(connData.type);
+      if (!ConnClass) {
+        console.warn(`Unknown connection type: ${connData.type}`);
+        continue;
+      }
+      
+      // Validate handler existence
+      const sourceExists = nodes.some(n => 
+        n.handlers.some(h => h.id === connData.sourceHandlerId)
+      );
+      const targetExists = nodes.some(n => 
+        n.handlers.some(h => h.id === connData.targetHandlerId)
+      );
+      
+      if (!sourceExists || !targetExists) {
+        console.warn(`Orphaned connection: ${connData.id}`);
+        continue;
+      }
+      
+      const instance = new ConnClass(connData);
+      instances.push(instance);
+    }
+    
+    return instances;
+  }
+}
+```
+
+**Handler ID Preservation Strategy**:
+1. During serialization, export handler IDs in hash map
+2. During node deserialization, match handlers by type/index (FIFO)
+3. Restore handler IDs from saved data
+4. Rebuild connections using preserved IDs
+
+---
+
+## 11. Extension Points
+
+### 11.1 Custom Node Types
+
+Developers can create custom node types by implementing the `NodePluginDefinition` interface:
+```typescript
+class CustomProcessNode implements NodePluginDefinition {
+  static readonly type = 'custom_process';
+  static readonly role = NodeRole.TOOLS;
+  
+  // ... implementation
+  
+  static readonly schema: PropertySchema = {
+    timeout: { type: 'number', label: 'Timeout (ms)', default: 5000 },
+    retryCount: { type: 'number', label: 'Retry Count', default: 3 },
+    mode: { 
+      type: 'select', 
+      label: 'Processing Mode', 
+      options: ['sequential', 'parallel'],
+      default: 'sequential'
+    }
+  };
+}
+```
+
+### 11.2 Custom Traversal Strategies
+```typescript
+class CustomAnalysisStrategy implements StrategyPluginDefinition {
+  static readonly type = 'custom_analysis';
+  
+  sortNodes(nodes: NodeInstance[], links: ConnectionInstance[]): NodeInstance[] {
+    // Custom sorting logic (e.g., by criticality, dependencies)
+  }
+  
+  getVisitors(): VisitorMap {
+    return {
+      'process_node': this.visitProcessNode.bind(this),
+      'decision_node': this.visitDecisionNode.bind(this),
+      // ...
+    };
+  }
+  
+  getInitialAggregator(): AnalysisResult {
+    return {
+      totalCost: 0,
+      criticalPath: [],
+      bottlenecks: []
+    };
+  }
+  
+  private visitProcessNode(
+    node: NodeInstance, 
+    agg: AnalysisResult, 
+    context: TraverseContext
+  ): void {
+    // Analysis logic
+  }
+}
+```
+
+### 11.3 Custom Render Strategies
+```typescript
+interface CustomNodeRenderer {
+  renderCustomIcon(
+    selection: d3.Selection,
+    node: NodeInstance
+  ): void;
+  
+  renderCustomOverlay(
+    selection: d3.Selection,
+    node: NodeInstance
+  ): void;
+}
+
+class AnimatedNodeRenderer implements CustomNodeRenderer {
+  renderCustomIcon(selection: d3.Selection, node: NodeInstance): void {
+    // Render animated icon with CSS animations or GSAP
+  }
+  
+  renderCustomOverlay(selection: d3.Selection, node: NodeInstance): void {
+    // Render progress indicators, status badges, etc.
+  }
+}
+```
+
+---
+
+## 12. Testing Strategy
+
+### 12.1 Unit Testing
+
+**Target**: Individual classes and pure functions
+```typescript
+describe('PathCalculator', () => {
+  describe('calculateBezierPath', () => {
+    it('should generate valid SVG path for horizontal handlers', () => {
+      const source: PathEndpoint = { x: 0, y: 0, direction: Direction.RIGHT, vector: { x: 1, y: 0 } };
+      const target: PathEndpoint = { x: 100, y: 0, direction: Direction.LEFT, vector: { x: -1, y: 0 } };
+      
+      const path = PathCalculator.calculateBezierPath(source, target);
+      
+      expect(path).toMatch(/^M 0,0 C/);
+      expect(path).toContain('100,0');
+    });
+    
+    it('should apply clearance for minimum curve', () => {
+      // Test clearance enforcement
+    });
+  });
+});
+
+describe('ConnectionValidator', () => {
+  it('should reject incompatible flow types', () => {
+    const source = createMockHandler({ flow: FlowType.IN });
+    const target = createMockHandler({ flow: FlowType.IN });
+    
+    const result = validator.validate(source, target);
+    
+    expect(result.valid).toBe(false);
+  });
+});
+```
+
+### 12.2 Integration Testing
+
+**Target**: Component interactions, event flow
+```typescript
+describe('Node Creation Flow', () => {
+  it('should create node, update cache, emit events, and trigger render', () => {
+    const widget = new DAGWidget('#container');
+    const listener = jest.fn();
+    
+    widget.subscribe(listener);
+    
+    widget.api.commands.createNode({
+      type: 'task',
+      x: 100,
+      y: 100
+    });
+    
+    expect(listener).toHaveBeenCalledWith('NODE_CREATED', expect.objectContaining({
+      type: 'task',
+      position: { x: 100, y: 100 }
+    }));
+    
+    expect(widget.api.queries.getNode).toBeDefined();
+  });
+});
+```
+
+### 12.3 End-to-End Testing
+
+**Target**: User workflows
+```typescript
+describe('Graph Construction Workflow', () => {
+  it('should allow creating and connecting nodes via UI', async () => {
+    const widget = new DAGWidget('#test-container');
+    
+    // Simulate user actions
+    await userEvent.click(screen.getByTitle('Add Node'));
+    await userEvent.click(screen.getByText('Task'));
+    
+    const node1 = screen.getByRole('group', { name: /task/i });
+    expect(node1).toBeInTheDocument();
+    
+    // Drag from handler to create connection
+    await userEvent.drag(
+      within(node1).getByRole('button', { name: /output/i }),
+      within(screen.getByRole('group', { name: /end/i }))
+        .getByRole('button', { name: /input/i })
+    );
+    
+    expect(screen.getByRole('path', { name: /connection/i })).toBeInTheDocument();
+  });
+});
+```
+
+---
+
+## 13. Security Considerations
+
+### 13.1 Input Validation
+
+1. **Sanitize User Input**
+   - Validate node labels, notes against XSS
+   - Escape HTML in text rendering
+   - Limit string lengths
+
+2. **Plugin Validation**
+   - Verify plugin sources (manifest URL)
+   - Validate plugin code before execution
+   - Sandboxing for untrusted plugins (future)
+
+### 13.2 State Integrity
+
+1. **Immutability Enforcement**
+   - Readonly modifiers prevent accidental mutations
+   - Deep freezing for exported state
+   - Type system prevents unsafe casts
+
+2. **Validation Gates**
+   - Validate all mutations at Store boundary
+   - Schema validation for plugin data
+   - Connection validation before creation
+
+---
+
+## 14. Deployment Considerations
+
+### 14.1 Build Configuration
+
+**Target**: ES2020, bundled with Rollup/Webpack
+```typescript
+// tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "lib": ["ES2020", "DOM"],
+    "strict": true,
+    "strictNullChecks": true,
+    "noImplicitAny": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  }
+}
+```
+
+### 14.2 Package Structure
+dist/
+├── widget.js              # Main bundle (UMD)
+├── widget.esm.js          # ES module
+├── widget.d.ts            # TypeScript declarations
+├── widget.css             # Styles
+└── plugins/               # Plugin bundles
+├── core-nodes.js
+├── llm-nodes.js
+└── manifest.json
+
+### 14.3 Performance Budget
+
+- Initial bundle: < 200 KB (gzipped)
+- Plugin bundles: < 50 KB each
+- Time to Interactive: < 2s on 3G
+- Frame rate: 60 FPS during interactions
+
+---
+
+## 15. Future Enhancements
+
+### 15.1 Planned Features
+
+1. **Collaborative Editing**
+   - Operational Transform (OT) for conflict resolution
+   - WebSocket-based real-time sync
+   - Cursor presence indicators
+
+2. **Advanced Rendering**
+   - WebGL renderer for large graphs (1000+ nodes)
+   - Level-of-detail (LOD) rendering
+   - Virtual scrolling for node palette
+
+3. **Enhanced History**
+   - Named snapshots (bookmarks)
+   - Branch/merge for experimentation
+   - History visualization timeline
+
+4. **Accessibility**
+   - Keyboard navigation
+   - Screen reader support
+   - High-contrast themes
+
+### 15.2 Plugin Ecosystem Growth
+
+1. **Official Plugin Repository**
+   - Community-contributed nodes
+   - Version management
+   - Dependency resolution
+
+2. **Plugin Development Kit**
+   - CLI for scaffolding
+   - Hot module replacement
+   - Testing utilities
+
+---
+
+## 16. Conclusion
+
+This high-level design provides a robust, maintainable architecture for the Diagram Editor Widget in TypeScript. The system's modular design, strict type safety, and clear separation of concerns enable:
+
+- **Extensibility**: Plugin system supports custom nodes, handlers, and strategies
+- **Maintainability**: CQS pattern and layered architecture reduce coupling
+- **Performance**: Caching, dirty flags, and selective rendering optimize for large graphs
+- **Type Safety**: Comprehensive TypeScript types prevent runtime errors
+- **Testability**: Dependency injection and event-driven design facilitate testing
+
+The architecture balances immediate requirements with future scalability, providing a solid foundation for a production-grade graph editor.

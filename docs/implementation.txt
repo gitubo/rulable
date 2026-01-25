@@ -1,0 +1,7004 @@
+Diagram Editor Widget - Implementation Plan
+Document Overview
+This implementation plan provides a phased approach to building the Diagram Editor Widget from the ground up. Each phase delivers a complete, testable module that builds upon previous work. The phases are designed to be independent enough that they can be executed in parallel by different teams or rearranged as needed.
+Target Audience: AI Code Agents and Senior TypeScript Developers
+Architecture: TypeScript, SVG/D3.js for rendering, modular plugin-based system
+Principles: SOLID, CQS (Command-Query Separation), Event-Driven Architecture
+
+Phase Overview
+PhaseModuleDeliverableDependencies1Core Type System & Domain ModelsType definitions, value objects, domain entitiesNone2Event System & State ManagementEventBus, Store, immutable statePhase 13Plugin Registry & ValidationPlugin registration, interface validationPhase 14Geometry EnginePath calculation, coordinate transformsPhase 15Rendering EngineSVG rendering, D3.js integrationPhases 1, 2, 46Input SystemState machine for interactionsPhases 1, 2, 57History ManagementUndo/redo with delta patchingPhase 28Serialization ServiceImport/export graph statePhases 1, 2, 39Command-Query APIPublic API facadeAll previous10UI ComponentsProperties panel, zoom controls, palettePhases 2, 911Plugin LoaderDynamic plugin loadingPhase 312Core PluginsDefault node/handler/strategy implementationsPhase 313Widget IntegrationMain widget class, initializationAll previous
+
+PHASE 1: Core Type System & Domain Models
+Overview
+Establish the foundational type system and domain models that all other modules depend on. This phase creates the vocabulary and contracts for the entire application.
+Objectives
+
+Define all TypeScript interfaces and types
+Implement domain models (Node, Connection, Handler, Note)
+Create value objects (Position, Dimensions, Vector2D)
+Establish type safety with branded types and enums
+
+Deliverables
+src/
+├── core/
+│   └── types/
+│       ├── graph.types.ts      # Graph structure types
+│       ├── plugin.types.ts     # Plugin interfaces
+│       ├── event.types.ts      # Event system types
+│       ├── api.types.ts        # Public API types
+│       └── index.ts            # Barrel export
+├── domain/
+│   └── models/
+│       ├── Node.ts             # Node entity
+│       ├── Connection.ts       # Connection entity
+│       ├── Handler.ts          # Handler entity
+│       ├── Note.ts             # Note entity
+│       └── index.ts
+└── utils/
+    └── DeepClone.ts            # Immutability helper
+
+Step 1.1: Core Type Definitions
+Prompt for AI Agent:
+markdown# Task: Implement Core Type System
+
+Create the foundational TypeScript type definitions for the Diagram Editor Widget.
+
+## Requirements
+
+### File: src/core/types/graph.types.ts
+
+Implement the following:
+
+1. **Branded Types** for type safety:
+```typescript
+export type NodeId = string & { readonly __brand: 'NodeId' };
+export type ConnectionId = string & { readonly __brand: 'ConnectionId' };
+export type HandlerId = string & { readonly __brand: 'HandlerId' };
+export type NoteId = string & { readonly __brand: 'NoteId' };
+
+// Factory functions with validation
+export function createNodeId(value: string): NodeId;
+export function createConnectionId(value: string): ConnectionId;
+export function createHandlerId(value: string): HandlerId;
+export function createNoteId(value: string): NoteId;
+```
+
+2. **Enums** for categorical types:
+```typescript
+export enum NodeRole {
+  CORE = 'Core',
+  DATA = 'Data',
+  TOOLS = 'Tools',
+  LOGIC = 'Logic',
+  AGENT = 'Agent'
+}
+
+export enum FlowType {
+  IN = 'in',
+  OUT = 'out',
+  BI = 'bi',
+  ANY = 'any'
+}
+
+export enum Direction {
+  LEFT = 'left',
+  RIGHT = 'right',
+  TOP = 'top',
+  BOTTOM = 'bottom',
+  OMNI = 'omni'
+}
+
+export enum ConnectionPathType {
+  BEZIER = 'bezier',
+  SMOOTH_STEP = 'smooth_step',
+  STRAIGHT = 'straight'
+}
+```
+
+3. **Value Objects** (immutable):
+```typescript
+export interface Position {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface Dimensions {
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface Vector2D {
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface Transform {
+  readonly k: number;  // scale
+  readonly x: number;  // translate X
+  readonly y: number;  // translate Y
+}
+```
+
+4. **Style Interfaces**:
+```typescript
+export interface NodeStyle {
+  readonly fontSize?: number;
+  readonly fill?: string;
+  readonly stroke?: string;
+  readonly strokeWidth?: number;
+}
+
+export interface LinkStyle {
+  readonly stroke: string;
+  readonly strokeWidth: number;
+  readonly strokeDasharray?: string;
+}
+
+export interface LinkLabel {
+  text: string;
+  offset: number;  // 0.0 to 1.0
+  color?: string;
+  bgColor?: string;
+  fontSize?: number;
+}
+```
+
+5. **Graph State Interface**:
+```typescript
+export interface GraphState {
+  readonly nodes: ReadonlyArray;
+  readonly links: ReadonlyArray;
+  readonly notes: ReadonlyArray;
+  readonly transform: Readonly;
+}
+```
+
+### File: src/core/types/plugin.types.ts
+
+Implement plugin type definitions:
+```typescript
+export interface PluginDefinition<T = unknown> {
+  readonly type: string;
+  readonly role?: string;
+}
+
+export interface PropertySchema {
+  [key: string]: PropertyFieldDefinition;
+}
+
+export interface PropertyFieldDefinition {
+  type: 'text' | 'number' | 'boolean' | 'select';
+  label: string;
+  default?: unknown;
+  options?: string[];
+}
+
+export interface NodePluginDefinition extends PluginDefinition {
+  readonly role: NodeRole;
+  hasTargetHandlers(): boolean;
+  getIconPath(): string;
+  getShapeTemplate(): string;
+  getShapeAttributes?(): Record | null;
+  schema?: PropertySchema;
+}
+
+export interface HandlerPluginDefinition extends PluginDefinition {
+  readonly flow: FlowType;
+  readonly dimensions: Dimensions;
+  getShapeTemplate(): string;
+  getShapeAttributes?(): Record | null;
+}
+
+export interface StrategyPluginDefinition extends PluginDefinition {
+  sortNodes(nodes: NodeInstance[], links: ConnectionInstance[]): NodeInstance[];
+  getVisitors(): VisitorMap;
+  getInitialAggregator(): unknown;
+}
+
+export interface ConnectionPluginDefinition extends PluginDefinition {
+  getData(): ConnectionData;
+}
+
+export type VisitorMap = Record;
+export type VisitorFunction = (node: NodeInstance, agg: any, context: TraverseContext) => void;
+
+export interface TraverseContext {
+  nodes: ReadonlyArray;
+  links: ReadonlyArray;
+}
+```
+
+### File: src/core/types/event.types.ts
+
+Implement event system types:
+```typescript
+export type EventType = 
+  | 'NODE_CREATED'
+  | 'NODE_UPDATED'
+  | 'NODE_REMOVED'
+  | 'NODE_MOVED'
+  | 'CONNECTION_CREATED'
+  | 'CONNECTION_UPDATED'
+  | 'CONNECTION_REMOVED'
+  | 'SELECTION_CHANGED'
+  | 'HISTORY_CHANGED'
+  | 'STATE_LOADED'
+  | 'PLUGINS_LOADED'
+  | 'TRAVERSE_COMPLETED'
+  | 'TRAVERSE_ERROR'
+  | 'RENDER_REQUESTED'
+  | 'NOTE_CREATED'
+  | 'NOTE_UPDATED'
+  | 'NOTE_REMOVED';
+
+export interface NodeMovedPayload {
+  readonly id: NodeId;
+  readonly from: Position;
+  readonly to: Position;
+}
+
+export interface Selection {
+  readonly type: 'node' | 'link' | 'note';
+  readonly id: string;
+}
+
+export interface HistoryStatus {
+  readonly canUndo: boolean;
+  readonly canRedo: boolean;
+}
+
+export interface TraverseResult {
+  readonly strategy: string;
+  readonly result: unknown;
+}
+
+export interface ErrorPayload {
+  readonly message: string;
+  readonly code?: string;
+}
+
+export interface EventPayloadMap {
+  NODE_CREATED: NodeInstance;
+  NODE_UPDATED: NodeInstance;
+  NODE_REMOVED: NodeId;
+  NODE_MOVED: NodeMovedPayload;
+  CONNECTION_CREATED: ConnectionInstance;
+  CONNECTION_UPDATED: ConnectionInstance;
+  CONNECTION_REMOVED: ConnectionId;
+  SELECTION_CHANGED: Selection | null;
+  HISTORY_CHANGED: HistoryStatus;
+  STATE_LOADED: GraphState;
+  PLUGINS_LOADED: void;
+  TRAVERSE_COMPLETED: TraverseResult;
+  TRAVERSE_ERROR: ErrorPayload;
+  RENDER_REQUESTED: void;
+  NOTE_CREATED: NoteInstance;
+  NOTE_UPDATED: NoteInstance;
+  NOTE_REMOVED: NoteId;
+}
+
+export type EventCallback = (payload: EventPayloadMap[T]) => void;
+export type UnsubscribeFn = () => void;
+```
+
+### File: src/core/types/api.types.ts
+
+Implement public API types:
+```typescript
+export interface WidgetConfig {
+  container: HTMLElement | string;
+  width?: string | number;
+  height?: string | number;
+  showDefaultUI?: boolean;
+  initialZoom?: number;
+  initialOffset?: { x: number; y: number };
+  manifestUrl?: string;
+}
+
+export interface CreateNodePayload {
+  type: string;
+  x: number;
+  y: number;
+  label?: string;
+  data?: Record;
+}
+
+export interface UpdateNodePayload {
+  id: NodeId;
+  label?: string;
+  note?: string;
+  style?: NodeStyle;
+  data?: Record;
+}
+
+export interface SpawnConnectedPayload {
+  type: string;
+  x: number;
+  y: number;
+  sourceHandlerId: HandlerId;
+}
+
+export interface UpdateLinkPayload {
+  id: ConnectionId;
+  label?: LinkLabel;
+  style?: LinkStyle;
+}
+
+export interface TraversePayload {
+  strategy: string;
+}
+
+export interface WidgetCommands {
+  loadPlugins(url?: string): void;
+  createNode(payload: CreateNodePayload): void;
+  deleteNode(id: NodeId): void;
+  updateNode(payload: UpdateNodePayload): void;
+  spawnNodeConnected(payload: SpawnConnectedPayload): void;
+  createLink(sourceHandlerId: HandlerId, targetHandlerId: HandlerId): void;
+  deleteLink(id: ConnectionId): void;
+  updateLink(payload: UpdateLinkPayload): void;
+  createNote(x: number, y: number): void;
+  deleteNote(id: NoteId): void;
+  undo(): void;
+  redo(): void;
+  zoomIn(): void;
+  zoomOut(): void;
+  zoomReset(): void;
+  zoomFit(): void;
+  selectObject(type: 'node' | 'link', id: string): void;
+  deselectAll(): void;
+  importState(data: SerializedState): void;
+  traverseDiagram(payload: TraversePayload): Promise;
+}
+
+export interface NodeMetadata {
+  readonly type: string;
+  readonly role: NodeRole;
+}
+
+export interface NodeData {
+  readonly id: NodeId;
+  readonly type: string;
+  readonly label: string;
+  readonly note: string;
+  readonly position: Readonly;
+  readonly style: Readonly;
+  readonly data: Readonly<Record>;
+  readonly handlers: ReadonlyArray;
+}
+
+export interface HandlerData {
+  readonly id: HandlerId;
+  readonly type: string;
+  readonly flow: FlowType;
+  readonly offset: Position;
+  readonly direction: Direction;
+  label: string;
+}
+
+export interface ConnectionData {
+  readonly id: ConnectionId;
+  readonly type: string;
+  readonly sourceHandlerId: HandlerId;
+  readonly targetHandlerId: HandlerId;
+  readonly pathType: ConnectionPathType;
+  readonly label?: Readonly;
+  readonly style: Readonly;
+  readonly data: Readonly<Record>;
+}
+
+export interface WidgetQueries {
+  getNode(id: NodeId): Readonly | null;
+  getAllNodesDefinition(): ReadonlyArray;
+  getNodeIconPathData(type: string): string;
+  getLink(id: ConnectionId): Readonly | null;
+  getGraphData(): Readonly;
+}
+
+export interface WidgetAPI {
+  readonly commands: WidgetCommands;
+  readonly queries: WidgetQueries;
+}
+
+export interface SerializedState {
+  metadata: {
+    version: string;
+    createdAt: string;
+    viewport: Transform;
+  };
+  nodes: Record;
+  connections: Record;
+  notes?: Record;
+}
+
+export interface SerializedNode {
+  id: NodeId;
+  type: string;
+  label: string;
+  note: string;
+  data: Record;
+  presentation: {
+    position: Position;
+    style: NodeStyle;
+  };
+  handles: Record;
+}
+
+export interface SerializedHandler {
+  id: HandlerId;
+  type: string;
+  label: string;
+  flow: FlowType;
+  presentation: {
+    offset: Position;
+    direction: Direction;
+  };
+}
+
+export interface SerializedConnection {
+  id: ConnectionId;
+  type: string;
+  sourceHandlerId: HandlerId;
+  targetHandlerId: HandlerId;
+  pathType: ConnectionPathType;
+  label?: LinkLabel;
+  style: LinkStyle;
+  data: Record;
+}
+
+export interface SerializedNote {
+  id: NoteId;
+  text: string;
+  position: Position;
+  dimensions: Dimensions;
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Branded type factory functions (validation, error cases)
+2. Type guards for runtime validation
+3. Immutability of value objects
+
+### Acceptance Criteria
+
+- [ ] All types compile without errors
+- [ ] Branded types prevent accidental string assignments
+- [ ] Enums are properly exported and usable
+- [ ] Value objects are readonly
+- [ ] All interfaces have proper JSDoc comments
+- [ ] Barrel exports work correctly
+
+Step 1.2: Domain Models Implementation
+Prompt for AI Agent:
+markdown# Task: Implement Domain Models
+
+Create the domain entity classes (Node, Connection, Handler, Note) that represent the core business logic of the graph.
+
+## Requirements
+
+### File: src/domain/models/Handler.ts
+
+Implement the Handler entity:
+```typescript
+import { 
+  HandlerId, 
+  FlowType, 
+  Direction, 
+  Position, 
+  Dimensions,
+  HandlerData,
+  HandlerPluginDefinition 
+} from '../../core/types';
+
+export class Handler {
+  readonly id: HandlerId;
+  readonly type: string;
+  readonly flow: FlowType;
+  readonly role: 'source' | 'target' | '';
+  readonly offset: Position;
+  readonly direction: Direction;
+  readonly dimensions: Dimensions;
+  label: string;
+  
+  private definition: HandlerPluginDefinition;
+  
+  constructor(
+    id: HandlerId,
+    type: string,
+    definition: HandlerPluginDefinition,
+    offset: Position,
+    label: string = ''
+  ) {
+    // Initialize properties
+    // Validate definition
+  }
+  
+  getShapeTemplate(): string {
+    return this.definition.getShapeTemplate();
+  }
+  
+  getShapeAttributes(): Record | null {
+    return this.definition.getShapeAttributes?.() ?? null;
+  }
+  
+  renderLabel(group: d3.Selection): void {
+    // To be implemented in rendering phase
+  }
+  
+  renderExtras(group: d3.Selection, state: any): void {
+    // To be implemented in rendering phase
+  }
+  
+  getData(): HandlerData {
+    return Object.freeze({
+      id: this.id,
+      type: this.type,
+      flow: this.flow,
+      offset: { ...this.offset },
+      direction: this.direction,
+      label: this.label
+    });
+  }
+  
+  clone(): Handler {
+    return new Handler(
+      this.id,
+      this.type,
+      this.definition,
+      { ...this.offset },
+      this.label
+    );
+  }
+}
+```
+
+### File: src/domain/models/Node.ts
+
+Implement the Node entity:
+```typescript
+import { 
+  NodeId, 
+  NodeRole, 
+  Position, 
+  Dimensions, 
+  NodeStyle,
+  NodeData,
+  NodePluginDefinition 
+} from '../../core/types';
+import { Handler } from './Handler';
+
+export class Node {
+  readonly id: NodeId;
+  readonly type: string;
+  readonly role: NodeRole;
+  label: string;
+  note: string;
+  readonly position: Position;
+  readonly width: number;
+  readonly height: number;
+  style: NodeStyle;
+  data: Record;
+  readonly handlers: Handler[];
+  
+  private definition: NodePluginDefinition;
+  
+  constructor(
+    id: NodeId,
+    type: string,
+    definition: NodePluginDefinition,
+    position: Position,
+    label: string = '',
+    data: Record = {}
+  ) {
+    // Initialize properties
+    // Create handlers based on definition
+    // Calculate dimensions
+  }
+  
+  getShapeTemplate(): string {
+    return this.definition.getShapeTemplate();
+  }
+  
+  getShapeAttributes(): Record | null {
+    return this.definition.getShapeAttributes?.() ?? null;
+  }
+  
+  getDimensions(): Dimensions {
+    return {
+      width: this.width,
+      height: this.height
+    };
+  }
+  
+  hasTargetHandlers(): boolean {
+    return this.handlers.some(h => h.flow === FlowType.IN || h.flow === FlowType.ANY);
+  }
+  
+  getData(): NodeData {
+    return Object.freeze({
+      id: this.id,
+      type: this.type,
+      label: this.label,
+      note: this.note,
+      position: { ...this.position },
+      style: { ...this.style },
+      data: { ...this.data },
+      handlers: this.handlers.map(h => h.getData())
+    });
+  }
+  
+  clone(): Node {
+    const cloned = new Node(
+      this.id,
+      this.type,
+      this.definition,
+      { ...this.position },
+      this.label,
+      { ...this.data }
+    );
+    cloned.note = this.note;
+    cloned.style = { ...this.style };
+    return cloned;
+  }
+}
+```
+
+### File: src/domain/models/Connection.ts
+
+Implement the Connection entity:
+```typescript
+import { 
+  ConnectionId, 
+  HandlerId, 
+  ConnectionPathType,
+  LinkStyle,
+  LinkLabel,
+  ConnectionData,
+  ConnectionPluginDefinition 
+} from '../../core/types';
+
+export class Connection {
+  readonly id: ConnectionId;
+  readonly type: string;
+  sourceHandlerId: HandlerId;
+  targetHandlerId: HandlerId;
+  pathType: ConnectionPathType;
+  style: LinkStyle;
+  label?: LinkLabel;
+  data: Record;
+  
+  private definition: ConnectionPluginDefinition;
+  
+  constructor(
+    id: ConnectionId,
+    type: string,
+    definition: ConnectionPluginDefinition,
+    sourceHandlerId: HandlerId,
+    targetHandlerId: HandlerId,
+    pathType: ConnectionPathType = ConnectionPathType.BEZIER
+  ) {
+    // Initialize properties
+    // Set default style
+  }
+  
+  getPath(nodes: NodeInstance[], registry: Registry): string {
+    // To be implemented in geometry phase
+    return '';
+  }
+  
+  update(changes: Partial): void {
+    if (changes.label !== undefined) {
+      this.label = changes.label;
+    }
+    if (changes.style !== undefined) {
+      this.style = { ...this.style, ...changes.style };
+    }
+    if (changes.data !== undefined) {
+      this.data = { ...this.data, ...changes.data };
+    }
+  }
+  
+  getData(): ConnectionData {
+    return Object.freeze({
+      id: this.id,
+      type: this.type,
+      sourceHandlerId: this.sourceHandlerId,
+      targetHandlerId: this.targetHandlerId,
+      pathType: this.pathType,
+      label: this.label ? { ...this.label } : undefined,
+      style: { ...this.style },
+      data: { ...this.data }
+    });
+  }
+  
+  clone(): Connection {
+    const cloned = new Connection(
+      this.id,
+      this.type,
+      this.definition,
+      this.sourceHandlerId,
+      this.targetHandlerId,
+      this.pathType
+    );
+    cloned.style = { ...this.style };
+    cloned.label = this.label ? { ...this.label } : undefined;
+    cloned.data = { ...this.data };
+    return cloned;
+  }
+}
+```
+
+### File: src/domain/models/Note.ts
+
+Implement the Note entity:
+```typescript
+import { NoteId, Position, Dimensions } from '../../core/types';
+
+export interface NoteData {
+  readonly id: NoteId;
+  readonly text: string;
+  readonly position: Position;
+  readonly dimensions: Dimensions;
+}
+
+export class Note {
+  readonly id: NoteId;
+  text: string;
+  position: Position;
+  dimensions: Dimensions;
+  
+  constructor(
+    id: NoteId,
+    position: Position,
+    text: string = '',
+    dimensions: Dimensions = { width: 200, height: 100 }
+  ) {
+    this.id = id;
+    this.text = text;
+    this.position = position;
+    this.dimensions = dimensions;
+  }
+  
+  getData(): NoteData {
+    return Object.freeze({
+      id: this.id,
+      text: this.text,
+      position: { ...this.position },
+      dimensions: { ...this.dimensions }
+    });
+  }
+  
+  clone(): Note {
+    return new Note(
+      this.id,
+      { ...this.position },
+      this.text,
+      { ...this.dimensions }
+    );
+  }
+}
+```
+
+### File: src/utils/DeepClone.ts
+
+Implement deep cloning utility for immutability:
+```typescript
+export function deepClone(obj: T): T {
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  
+  if (obj instanceof Date) {
+    return new Date(obj.getTime()) as any;
+  }
+  
+  if (obj instanceof Array) {
+    return obj.map(item => deepClone(item)) as any;
+  }
+  
+  if (obj instanceof Object) {
+    const cloned: any = {};
+    for (const key in obj) {
+      if (obj.hasOwnProperty(key)) {
+        cloned[key] = deepClone(obj[key]);
+      }
+    }
+    return cloned;
+  }
+  
+  throw new Error('Unable to clone object');
+}
+
+export function deepFreeze(obj: T): Readonly {
+  Object.freeze(obj);
+  
+  Object.getOwnPropertyNames(obj).forEach((prop) => {
+    const value = (obj as any)[prop];
+    if (value !== null && (typeof value === 'object' || typeof value === 'function')) {
+      deepFreeze(value);
+    }
+  });
+  
+  return obj;
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Node creation with handlers
+2. Handler flow type validation
+3. Connection data mutation and immutability
+4. Note cloning and data export
+5. Deep clone utility edge cases
+
+### Acceptance Criteria
+
+- [ ] All domain models instantiate correctly
+- [ ] getData() methods return frozen objects
+- [ ] clone() methods create independent copies
+- [ ] Handlers are properly initialized from node definitions
+- [ ] All models have proper validation
+- [ ] JSDoc comments explain business logic
+```
+
+---
+
+## Phase 1 Summary
+
+**Completed Deliverables:**
+- ✅ Complete TypeScript type system
+- ✅ Branded types for type safety
+- ✅ Domain entity models
+- ✅ Value objects and immutability helpers
+
+**Testing Checklist:**
+- [ ] All types compile without errors
+- [ ] Domain models pass unit tests
+- [ ] Immutability is enforced
+- [ ] Type guards work correctly
+
+**Next Phase:** Phase 2 - Event System & State Management
+
+---
+
+# PHASE 2: Event System & State Management
+
+## Overview
+
+Build the reactive core of the application with an event bus for decoupled communication and a centralized store for state management.
+
+## Objectives
+
+- Implement type-safe event bus with subscription management
+- Create centralized state store with immutable API
+- Build caching layer for performance optimization
+- Implement selection state management
+
+## Deliverables
+```
+src/
+├── core/
+│   ├── EventBus.ts          # Event coordination
+│   ├── State.ts             # State management & store
+│   ├── SelectionManager.ts  # Selection state
+│   └── Config.ts            # Configuration constants
+
+Step 2.1: Event Bus Implementation
+Prompt for AI Agent:
+markdown# Task: Implement Type-Safe Event Bus
+
+Create an event bus that enables decoupled communication between components with full type safety.
+
+## Requirements
+
+### File: src/core/EventBus.ts
+```typescript
+import { EventType, EventPayloadMap, EventCallback, UnsubscribeFn } from './types';
+
+export class EventBus {
+  private listeners: Map>>;
+  
+  constructor() {
+    this.listeners = new Map();
+  }
+  
+  on(
+    event: T, 
+    callback: EventCallback
+  ): UnsubscribeFn {
+    if (!this.listeners.has(event)) {
+      this.listeners.set(event, new Set());
+    }
+    
+    this.listeners.get(event)!.add(callback);
+    
+    // Return unsubscribe function
+    return () => {
+      this.off(event, callback);
+    };
+  }
+  
+  off(
+    event: T, 
+    callback: EventCallback
+  ): void {
+    const callbacks = this.listeners.get(event);
+    if (callbacks) {
+      callbacks.delete(callback);
+      if (callbacks.size === 0) {
+        this.listeners.delete(event);
+      }
+    }
+  }
+  
+  emit(
+    event: T, 
+    payload: EventPayloadMap[T]
+  ): void {
+    const callbacks = this.listeners.get(event);
+    if (callbacks) {
+      callbacks.forEach(callback => {
+        try {
+          callback(payload);
+        } catch (error) {
+          console.error(`Error in event handler for ${event}:`, error);
+        }
+      });
+    }
+  }
+  
+  clear(): void {
+    this.listeners.clear();
+  }
+  
+  hasListeners(event: EventType): boolean {
+    return this.listeners.has(event) && this.listeners.get(event)!.size > 0;
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Event subscription and unsubscription
+2. Event emission with correct payload types
+3. Multiple listeners for same event
+4. Unsubscribe function behavior
+5. Error handling in callbacks (should not break other listeners)
+6. Clear all listeners
+
+### Acceptance Criteria
+
+- [ ] Type-safe event subscription
+- [ ] Unsubscribe function works correctly
+- [ ] Multiple listeners can subscribe to same event
+- [ ] Errors in one listener don't affect others
+- [ ] No memory leaks when unsubscribing
+
+Step 2.2: State Store Implementation
+Prompt for AI Agent:
+markdown# Task: Implement Centralized State Store
+
+Create the state management system with immutable API, caching, and event integration.
+
+## Requirements
+
+### File: src/core/Config.ts
+
+Define configuration constants:
+```typescript
+export const Config = {
+  // Sizing (8px module)
+  MODULE: 8,
+  NODE_MIN_WIDTH: 160,
+  NODE_MIN_HEIGHT: 80,
+  NODE_PADDING: 16,
+  HANDLER_SIZE: 12,
+  HANDLER_SPACING: 24,
+  
+  // Grid
+  GRID_SIZE: 20,
+  GRID_COLOR: '#e0e0e0',
+  GRID_STROKE_WIDTH: 0.5,
+  
+  // Zoom
+  ZOOM_MIN: 0.1,
+  ZOOM_MAX: 3.0,
+  ZOOM_STEP: 0.1,
+  
+  // History
+  HISTORY_MAX_DEPTH: 50,
+  
+  // Rendering
+  CLEARANCE: 20,  // Connection clearance from nodes
+  CORNER_RADIUS: 8,  // Orthogonal path corners
+  
+  // Colors
+  DEFAULT_NODE_FILL: '#ffffff',
+  DEFAULT_NODE_STROKE: '#333333',
+  DEFAULT_LINK_STROKE: '#666666',
+  DEFAULT_LINK_WIDTH: 2,
+  SELECTION_COLOR: '#0066cc',
+  GHOST_CONNECTION_COLOR: '#999999',
+  
+  // Text
+  DEFAULT_FONT_SIZE: 14,
+  DEFAULT_FONT_FAMILY: 'Inter, system-ui, sans-serif'
+} as const;
+```
+
+### File: src/core/State.ts
+
+Implement the state store:
+```typescript
+import { EventBus } from './EventBus';
+import { 
+  GraphState, 
+  NodeId, 
+  ConnectionId, 
+  HandlerId,
+  NoteId,
+  Position,
+  Transform,
+  NodeData,
+  ConnectionData
+} from './types';
+import { Node } from '../domain/models/Node';
+import { Connection } from '../domain/models/Connection';
+import { Note } from '../domain/models/Note';
+import { Handler } from '../domain/models/Handler';
+import { deepClone, deepFreeze } from '../utils/DeepClone';
+
+interface StoreCache {
+  handlerAbsolutePositions: Map<HandlerId, Position>;
+  nodeToLinks: Map<NodeId, Connection[]>;
+}
+
+export class Store {
+  private state: GraphState;
+  private cache: StoreCache;
+  private eventBus: EventBus;
+  
+  constructor(eventBus: EventBus) {
+    this.eventBus = eventBus;
+    this.state = {
+      nodes: [],
+      links: [],
+      notes: [],
+      transform: { k: 1, x: 0, y: 0 }
+    };
+    this.cache = {
+      handlerAbsolutePositions: new Map(),
+      nodeToLinks: new Map()
+    };
+  }Continue09:16// ========== QUERIES (Immutable) ==========
+getNode(id: NodeId): Readonly<Node> | null {
+const node = this.state.nodes.find(n => n.id === id);
+return node ? deepFreeze(node.clone()) : null;
+}
+getAllNodes(): ReadonlyArray<Readonly<Node>> {
+return deepFreeze(this.state.nodes.map(n => n.clone()));
+}
+getLink(id: ConnectionId): Readonly<Connection> | null {
+const link = this.state.links.find(l => l.id === id);
+return link ? deepFreeze(link.clone()) : null;
+}
+getAllLinks(): ReadonlyArray<Readonly<Connection>> {
+return deepFreeze(this.state.links.map(l => l.clone()));
+}
+getNote(id: NoteId): Readonly<Note> | null {
+const note = this.state.notes.find(n => n.id === id);
+return note ? deepFreeze(note.clone()) : null;
+}
+getAllNotes(): ReadonlyArray<Readonly<Note>> {
+return deepFreeze(this.state.notes.map(n => n.clone()));
+}
+getTransform(): Readonly<Transform> {
+return deepFreeze({ ...this.state.transform });
+}
+getLinksForNode(nodeId: NodeId): ReadonlyArray<Readonly<Connection>> {
+const links = this.cache.nodeToLinks.get(nodeId) || [];
+return deepFreeze(links.map(l => l.clone()));
+}
+getHandlerAbsolutePosition(handlerId: HandlerId): Position | null {
+return this.cache.handlerAbsolutePositions.get(handlerId) || null;
+}
+getState(): Readonly<GraphState> {
+return deepFreeze({
+nodes: this.state.nodes.map(n => n.clone()),
+links: this.state.links.map(l => l.clone()),
+notes: this.state.notes.map(n => n.clone()),
+transform: { ...this.state.transform }
+});
+}
+// ========== COMMANDS (Mutations) ==========
+addNode(node: Node): void {
+this.state.nodes.push(node);
+this.rebuildNodeToLinksCache();
+this.updateHandlerPositionCache(node);
+this.eventBus.emit('NODE_CREATED', node);
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+removeNode(id: NodeId): void {
+const index = this.state.nodes.findIndex(n => n.id === id);
+if (index === -1) return;
+const node = this.state.nodes[index];
+
+// Remove connected links
+const connectedLinks = this.getLinksForNode(id);
+connectedLinks.forEach(link => this.removeLink(link.id));
+
+this.state.nodes.splice(index, 1);
+this.rebuildNodeToLinksCache();
+this.removeHandlerPositionsForNode(node);
+
+this.eventBus.emit('NODE_REMOVED', id);
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+updateNode(id: NodeId, changes: Partial<NodeData>): void {
+const node = this.state.nodes.find(n => n.id === id);
+if (!node) return;
+if (changes.label !== undefined) node.label = changes.label;
+if (changes.note !== undefined) node.note = changes.note;
+if (changes.style !== undefined) node.style = { ...node.style, ...changes.style };
+if (changes.data !== undefined) node.data = { ...node.data, ...changes.data };
+
+this.eventBus.emit('NODE_UPDATED', node);
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+moveNode(id: NodeId, newPosition: Position): void {
+const node = this.state.nodes.find(n => n.id === id);
+if (!node) return;
+const oldPosition = { ...node.position };
+(node.position as any).x = newPosition.x;
+(node.position as any).y = newPosition.y;
+
+this.updateHandlerPositionCache(node);
+
+this.eventBus.emit('NODE_MOVED', {
+  id,
+  from: oldPosition,
+  to: newPosition
+});
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+addLink(link: Connection): void {
+this.state.links.push(link);
+this.rebuildNodeToLinksCache();
+this.eventBus.emit('CONNECTION_CREATED', link);
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+removeLink(id: ConnectionId): void {
+const index = this.state.links.findIndex(l => l.id === id);
+if (index === -1) return;
+this.state.links.splice(index, 1);
+this.rebuildNodeToLinksCache();
+this.eventBus.emit('CONNECTION_REMOVED', id);
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+updateLink(id: ConnectionId, changes: Partial<ConnectionData>): void {
+const link = this.state.links.find(l => l.id === id);
+if (!link) return;
+link.update(changes);
+
+this.eventBus.emit('CONNECTION_UPDATED', link);
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+addNote(note: Note): void {
+this.state.notes.push(note);
+this.eventBus.emit('NOTE_CREATED', note);
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+removeNote(id: NoteId): void {
+const index = this.state.notes.findIndex(n => n.id === id);
+if (index === -1) return;
+this.state.notes.splice(index, 1);
+this.eventBus.emit('NOTE_REMOVED', id);
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+updateNote(id: NoteId, changes: Partial<{ text: string; position: Position; dimensions: Dimensions }>): void {
+const note = this.state.notes.find(n => n.id === id);
+if (!note) return;
+if (changes.text !== undefined) note.text = changes.text;
+if (changes.position !== undefined) note.position = changes.position;
+if (changes.dimensions !== undefined) note.dimensions = changes.dimensions;
+
+this.eventBus.emit('NOTE_UPDATED', note);
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+setTransform(transform: Transform): void {
+this.state.transform = transform;
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+setState(state: GraphState): void {
+this.state = state;
+this.rebuildAllCaches();
+this.eventBus.emit('STATE_LOADED', this.getState());
+this.eventBus.emit('RENDER_REQUESTED', undefined);
+}
+// ========== CACHE MANAGEMENT ==========
+private rebuildAllCaches(): void {
+this.rebuildNodeToLinksCache();
+this.rebuildHandlerPositionCache();
+}
+private rebuildNodeToLinksCache(): void {
+this.cache.nodeToLinks.clear();
+this.state.links.forEach(link => {
+  // Find source and target nodes
+  const sourceNode = this.findNodeByHandlerId(link.sourceHandlerId);
+  const targetNode = this.findNodeByHandlerId(link.targetHandlerId);
+  
+  if (sourceNode) {
+    if (!this.cache.nodeToLinks.has(sourceNode.id)) {
+      this.cache.nodeToLinks.set(sourceNode.id, []);
+    }
+    this.cache.nodeToLinks.get(sourceNode.id)!.push(link);
+  }
+  
+  if (targetNode && targetNode.id !== sourceNode?.id) {
+    if (!this.cache.nodeToLinks.has(targetNode.id)) {
+      this.cache.nodeToLinks.set(targetNode.id, []);
+    }
+    this.cache.nodeToLinks.get(targetNode.id)!.push(link);
+  }
+});
+}
+private rebuildHandlerPositionCache(): void {
+this.cache.handlerAbsolutePositions.clear();
+this.state.nodes.forEach(node => {
+this.updateHandlerPositionCache(node);
+});
+}
+private updateHandlerPositionCache(node: Node): void {
+node.handlers.forEach(handler => {
+const absolutePosition = {
+x: node.position.x + handler.offset.x,
+y: node.position.y + handler.offset.y
+};
+this.cache.handlerAbsolutePositions.set(handler.id, absolutePosition);
+});
+}
+private removeHandlerPositionsForNode(node: Node): void {
+node.handlers.forEach(handler => {
+this.cache.handlerAbsolutePositions.delete(handler.id);
+});
+}
+private findNodeByHandlerId(handlerId: HandlerId): Node | null {
+return this.state.nodes.find(node =>
+node.handlers.some(h => h.id === handlerId)
+) || null;
+}
+}
+
+### Testing Requirements
+
+Create unit tests for:
+1. Node addition, update, removal
+2. Link creation and validation
+3. Cache rebuilding after topology changes
+4. Immutability of query results
+5. Event emission on mutations
+6. Handler position caching
+
+### Acceptance Criteria
+
+- [ ] All queries return frozen, immutable data
+- [ ] Mutations emit appropriate events
+- [ ] Caches are correctly updated
+- [ ] No memory leaks in event subscriptions
+- [ ] State isolation between instances
+
+Step 2.3: Selection Manager
+Prompt for AI Agent:
+markdown# Task: Implement Selection State Management
+
+Create a selection manager that tracks the currently selected graph element and integrates with the store.
+
+## Requirements
+
+### File: src/core/SelectionManager.ts
+```typescript
+import { EventBus } from './EventBus';
+import { Selection, NodeId, ConnectionId, NoteId } from './types';
+
+export class SelectionManager {
+  private selection: Selection | null = null;
+  private eventBus: EventBus;
+  
+  constructor(eventBus: EventBus) {
+    this.eventBus = eventBus;
+  }
+  
+  // ========== QUERIES ==========
+  
+  getSelection(): Readonly | null {
+    return this.selection ? { ...this.selection } : null;
+  }
+  
+  isSelected(type: 'node' | 'link' | 'note', id: string): boolean {
+    return this.selection?.type === type && this.selection?.id === id;
+  }
+  
+  hasSelection(): boolean {
+    return this.selection !== null;
+  }
+  
+  // ========== COMMANDS ==========
+  
+  selectNode(id: NodeId): void {
+    this.setSelection({ type: 'node', id });
+  }
+  
+  selectLink(id: ConnectionId): void {
+    this.setSelection({ type: 'link', id });
+  }
+  
+  selectNote(id: NoteId): void {
+    this.setSelection({ type: 'note', id });
+  }
+  
+  clearSelection(): void {
+    if (this.selection === null) return;
+    
+    this.selection = null;
+    this.eventBus.emit('SELECTION_CHANGED', null);
+    this.eventBus.emit('RENDER_REQUESTED', undefined);
+  }
+  
+  private setSelection(selection: Selection): void {
+    // Don't emit if selection hasn't changed
+    if (this.selection?.type === selection.type && this.selection?.id === selection.id) {
+      return;
+    }
+    
+    this.selection = selection;
+    this.eventBus.emit('SELECTION_CHANGED', selection);
+    this.eventBus.emit('RENDER_REQUESTED', undefined);
+  }
+  
+  // Auto-clear selection when items are removed
+  handleNodeRemoved(nodeId: NodeId): void {
+    if (this.selection?.type === 'node' && this.selection?.id === nodeId) {
+      this.clearSelection();
+    }
+  }
+  
+  handleLinkRemoved(linkId: ConnectionId): void {
+    if (this.selection?.type === 'link' && this.selection?.id === linkId) {
+      this.clearSelection();
+    }
+  }
+  
+  handleNoteRemoved(noteId: NoteId): void {
+    if (this.selection?.type === 'note' && this.selection?.id === noteId) {
+      this.clearSelection();
+    }
+  }
+}
+```
+
+### Integration Requirements
+
+In Store constructor, subscribe to removal events:
+```typescript
+constructor(eventBus: EventBus, selectionManager: SelectionManager) {
+  // ... existing code ...
+  
+  // Auto-clear selection on item removal
+  this.eventBus.on('NODE_REMOVED', (id) => selectionManager.handleNodeRemoved(id));
+  this.eventBus.on('CONNECTION_REMOVED', (id) => selectionManager.handleLinkRemoved(id));
+  this.eventBus.on('NOTE_REMOVED', (id) => selectionManager.handleNoteRemoved(id));
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Selection change events
+2. Auto-clear on item removal
+3. isSelected() accuracy
+4. No event emission for same selection
+
+### Acceptance Criteria
+
+- [ ] Selection state properly tracked
+- [ ] Events emitted on selection change
+- [ ] Auto-clear works for all entity types
+- [ ] No duplicate events for same selection
+```
+
+---
+
+## Phase 2 Summary
+
+**Completed Deliverables:**
+- ✅ Type-safe event bus
+- ✅ Centralized state store with caching
+- ✅ Selection state management
+- ✅ Configuration constants
+
+**Testing Checklist:**
+- [ ] Event bus handles subscriptions correctly
+- [ ] Store maintains immutability
+- [ ] Caches are updated correctly
+- [ ] Selection integrates with store
+
+**Next Phase:** Phase 3 - Plugin Registry & Validation
+
+---
+
+# PHASE 3: Plugin Registry & Validation
+
+## Overview
+
+Build the plugin system that allows dynamic registration and validation of node types, handlers, strategies, and connections.
+
+## Objectives
+
+- Implement plugin registry with type-safe storage
+- Create validation system for plugin interfaces
+- Build plugin metadata management
+- Establish plugin loading contracts
+
+## Deliverables
+```
+src/
+└── core/
+    ├── Registry.ts            # Plugin registration
+    └── validation/
+        └── PluginValidator.ts # Interface validation
+
+Step 3.1: Plugin Validator
+Prompt for AI Agent:
+markdown# Task: Implement Plugin Interface Validator
+
+Create a validation system that ensures plugins implement required interfaces correctly.
+
+## Requirements
+
+### File: src/core/validation/PluginValidator.ts
+```typescript
+export type PluginCategory = 'node' | 'handler' | 'strategy' | 'connection';
+
+export interface ValidationResult {
+  valid: boolean;
+  error?: PluginValidationError;
+}
+
+export interface PluginValidationError {
+  plugin: string;
+  category: PluginCategory;
+  missing: string[];
+}
+
+export class PluginValidator {
+  validate(
+    definition: T,
+    category: PluginCategory
+  ): ValidationResult {
+    const requiredMembers = this.getRequiredMembers(category);
+    const missing: string[] = [];
+    
+    // Check for static 'type' property
+    const ctor = definition.constructor as any;
+    if (!ctor.type || typeof ctor.type !== 'string') {
+      missing.push('static type');
+    }
+    
+    // Check for required instance/static methods
+    for (const member of requiredMembers) {
+      const hasInstanceMethod = typeof (definition as any)[member] === 'function';
+      const hasStaticMethod = typeof ctor[member] === 'function';
+      
+      if (!hasInstanceMethod && !hasStaticMethod) {
+        missing.push(member);
+      }
+    }
+    
+    // Category-specific validation
+    if (category === 'node') {
+      this.validateNodePlugin(definition as NodePluginDefinition, missing);
+    } else if (category === 'handler') {
+      this.validateHandlerPlugin(definition as HandlerPluginDefinition, missing);
+    } else if (category === 'strategy') {
+      this.validateStrategyPlugin(definition as StrategyPluginDefinition, missing);
+    }
+    
+    if (missing.length > 0) {
+      return {
+        valid: false,
+        error: {
+          plugin: ctor.name,
+          category,
+          missing
+        }
+      };
+    }
+    
+    return { valid: true };
+  }
+  
+  private getRequiredMembers(category: PluginCategory): string[] {
+    const interfaces: Record = {
+      node: [
+        'getShapeTemplate',
+        'getIconPath',
+        'hasTargetHandlers'
+      ],
+      handler: [
+        'getShapeTemplate'
+      ],
+      strategy: [
+        'sortNodes',
+        'getVisitors',
+        'getInitialAggregator'
+      ],
+      connection: [
+        'getData'
+      ]
+    };
+    
+    return interfaces[category] || [];
+  }
+  
+  private validateNodePlugin(definition: NodePluginDefinition, missing: string[]): void {
+    const ctor = definition.constructor as any;
+    
+    if (!ctor.role || !Object.values(NodeRole).includes(ctor.role)) {
+      missing.push('static role (valid NodeRole)');
+    }
+  }
+  
+  private validateHandlerPlugin(definition: HandlerPluginDefinition, missing: string[]): void {
+    const ctor = definition.constructor as any;
+    
+    if (!ctor.flow || !Object.values(FlowType).includes(ctor.flow)) {
+      missing.push('static flow (valid FlowType)');
+    }
+    
+    if (!ctor.dimensions || typeof ctor.dimensions.width !== 'number' || typeof ctor.dimensions.height !== 'number') {
+      missing.push('static dimensions { width: number, height: number }');
+    }
+  }
+  
+  private validateStrategyPlugin(definition: StrategyPluginDefinition, missing: string[]): void {
+    // Strategy-specific validation if needed
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Valid plugin passes validation
+2. Missing required method detected
+3. Missing static type detected
+4. Invalid role/flow type detected
+5. Each plugin category validation
+
+### Acceptance Criteria
+
+- [ ] Validator detects all missing requirements
+- [ ] Error messages are clear and actionable
+- [ ] Valid plugins pass without false positives
+- [ ] Category-specific validation works
+
+Step 3.2: Plugin Registry
+Prompt for AI Agent:
+markdown# Task: Implement Plugin Registry
+
+Create the registry that stores and retrieves plugin definitions with validation.
+
+## Requirements
+
+### File: src/core/Registry.ts
+```typescript
+import { 
+  NodePluginDefinition,
+  HandlerPluginDefinition,
+  StrategyPluginDefinition,
+  ConnectionPluginDefinition,
+  NodeRole
+} from './types';
+import { PluginValidator, PluginCategory } from './validation/PluginValidator';
+
+export class Registry {
+  private nodes: Map;
+  private handlers: Map;
+  private strategies: Map;
+  private connections: Map;
+  private validator: PluginValidator;
+  
+  constructor() {
+    this.nodes = new Map();
+    this.handlers = new Map();
+    this.strategies = new Map();
+    this.connections = new Map();
+    this.validator = new PluginValidator();
+  }
+  
+  // ========== NODE PLUGINS ==========
+  
+  registerNode(definition: NodePluginDefinition): void {
+    const ctor = definition.constructor as any;
+    const type = ctor.type;
+    
+    if (!type) {
+      throw new Error('Node plugin must have static type property');
+    }
+    
+    const validation = this.validator.validate(definition, 'node');
+    if (!validation.valid) {
+      throw new Error(
+        `Invalid node plugin "${validation.error!.plugin}": missing ${validation.error!.missing.join(', ')}`
+      );
+    }
+    
+    if (this.nodes.has(type)) {
+      console.warn(`Node type "${type}" is already registered. Overwriting.`);
+    }
+    
+    this.nodes.set(type, definition);
+  }
+  
+  getNodeDefinition(type: string): NodePluginDefinition | null {
+    return this.nodes.get(type) || null;
+  }
+  
+  getAllNodeDefinitions(): NodePluginDefinition[] {
+    return Array.from(this.nodes.values());
+  }
+  
+  getNodesByRole(role: NodeRole): NodePluginDefinition[] {
+    return Array.from(this.nodes.values()).filter(def => {
+      const ctor = def.constructor as any;
+      return ctor.role === role;
+    });
+  }
+  
+  hasNodeType(type: string): boolean {
+    return this.nodes.has(type);
+  }
+  
+  // ========== HANDLER PLUGINS ==========
+  
+  registerHandler(definition: HandlerPluginDefinition): void {
+    const ctor = definition.constructor as any;
+    const type = ctor.type;
+    
+    if (!type) {
+      throw new Error('Handler plugin must have static type property');
+    }
+    
+    const validation = this.validator.validate(definition, 'handler');
+    if (!validation.valid) {
+      throw new Error(
+        `Invalid handler plugin "${validation.error!.plugin}": missing ${validation.error!.missing.join(', ')}`
+      );
+    }
+    
+    if (this.handlers.has(type)) {
+      console.warn(`Handler type "${type}" is already registered. Overwriting.`);
+    }
+    
+    this.handlers.set(type, definition);
+  }
+  
+  getHandlerDefinition(type: string): HandlerPluginDefinition | null {
+    return this.handlers.get(type) || null;
+  }
+  
+  getAllHandlerDefinitions(): HandlerPluginDefinition[] {
+    return Array.from(this.handlers.values());
+  }
+  
+  hasHandlerType(type: string): boolean {
+    return this.handlers.has(type);
+  }
+  
+  // ========== STRATEGY PLUGINS ==========
+  
+  registerStrategy(definition: StrategyPluginDefinition): void {
+    const ctor = definition.constructor as any;
+    const type = ctor.type;
+    
+    if (!type) {
+      throw new Error('Strategy plugin must have static type property');
+    }
+    
+    const validation = this.validator.validate(definition, 'strategy');
+    if (!validation.valid) {
+      throw new Error(
+        `Invalid strategy plugin "${validation.error!.plugin}": missing ${validation.error!.missing.join(', ')}`
+      );
+    }
+    
+    if (this.strategies.has(type)) {
+      console.warn(`Strategy type "${type}" is already registered. Overwriting.`);
+    }
+    
+    this.strategies.set(type, definition);
+  }
+  
+  getStrategy(type: string): StrategyPluginDefinition | null {
+    return this.strategies.get(type) || null;
+  }
+  
+  getAllStrategies(): StrategyPluginDefinition[] {
+    return Array.from(this.strategies.values());
+  }
+  
+  hasStrategy(type: string): boolean {
+    return this.strategies.has(type);
+  }
+  
+  // ========== CONNECTION PLUGINS ==========
+  
+  registerConnection(definition: ConnectionPluginDefinition): void {
+    const ctor = definition.constructor as any;
+    const type = ctor.type;
+    
+    if (!type) {
+      throw new Error('Connection plugin must have static type property');
+    }
+    
+    const validation = this.validator.validate(definition, 'connection');
+    if (!validation.valid) {
+      throw new Error(
+        `Invalid connection plugin "${validation.error!.plugin}": missing ${validation.error!.missing.join(', ')}`
+      );
+    }
+    
+    if (this.connections.has(type)) {
+      console.warn(`Connection type "${type}" is already registered. Overwriting.`);
+    }
+    
+    this.connections.set(type, definition);
+  }
+  
+  getConnectionDefinition(type: string): ConnectionPluginDefinition | null {
+    return this.connections.get(type) || null;
+  }
+  
+  getAllConnectionDefinitions(): ConnectionPluginDefinition[] {
+    return Array.from(this.connections.values());
+  }
+  
+  hasConnectionType(type: string): boolean {
+    return this.connections.has(type);
+  }
+  
+  // ========== UTILITY ==========
+  
+  clear(): void {
+    this.nodes.clear();
+    this.handlers.clear();
+    this.strategies.clear();
+    this.connections.clear();
+  }
+  
+  getStats(): { nodes: number; handlers: number; strategies: number; connections: number } {
+    return {
+      nodes: this.nodes.size,
+      handlers: this.handlers.size,
+      strategies: this.strategies.size,
+      connections: this.connections.size
+    };
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Successful plugin registration
+2. Validation errors on invalid plugins
+3. Overwrite warnings
+4. Retrieval by type
+5. Filtering by role
+6. Clear functionality
+
+### Acceptance Criteria
+
+- [ ] Valid plugins register successfully
+- [ ] Invalid plugins throw descriptive errors
+- [ ] Type collision warnings are logged
+- [ ] Queries return correct definitions
+- [ ] Clear removes all plugins
+```
+
+---
+
+## Phase 3 Summary
+
+**Completed Deliverables:**
+- ✅ Plugin validation system
+- ✅ Type-safe plugin registry
+- ✅ Plugin metadata management
+
+**Testing Checklist:**
+- [ ] Validator catches all interface violations
+- [ ] Registry stores and retrieves plugins correctly
+- [ ] Invalid plugins are rejected with clear errors
+
+**Next Phase:** Phase 4 - Geometry Engine
+
+---
+
+# PHASE 4: Geometry Engine
+
+## Overview
+
+Implement the geometric calculation engine for connection path routing, coordinate transformations, and spatial queries.
+
+## Objectives
+
+- Build path calculation strategies (Bezier, Orthogonal, Straight)
+- Implement coordinate transformation utilities
+- Create spatial query functions
+- Support label positioning along paths
+
+## Deliverables
+```
+src/
+└── rendering/
+    └── geometry/
+        ├── PathCalculator.ts      # Main path calculation API
+        ├── BezierPath.ts          # Bezier curve strategy
+        ├── OrthogonalPath.ts      # Smooth-step routing
+        ├── StraightPath.ts        # Direct line strategy
+        └── CoordinateTransform.ts # Screen/graph transforms
+
+Step 4.1: Coordinate Transformation Utilities
+Prompt for AI Agent:
+markdown# Task: Implement Coordinate Transformation System
+
+Create utilities for converting between screen coordinates and graph coordinates.
+
+## Requirements
+
+### File: src/utils/CoordinateTransform.ts
+```typescript
+import { Position, Transform } from '../core/types';
+import { Config } from '../core/Config';
+
+export class CoordinateTransform {
+  /**
+   * Convert screen coordinates to graph coordinates
+   */
+  static screenToGraph(
+    screenX: number,
+    screenY: number,
+    transform: Transform
+  ): Position {
+    return {
+      x: (screenX - transform.x) / transform.k,
+      y: (screenY - transform.y) / transform.k
+    };
+  }
+  
+  /**
+   * Convert graph coordinates to screen coordinates
+   */
+  static graphToScreen(
+    graphX: number,
+    graphY: number,
+    transform: Transform
+  ): Position {
+    return {
+      x: graphX * transform.k + transform.x,
+      y: graphY * transform.k + transform.y
+    };
+  }
+  
+  /**
+   * Snap position to grid
+   */
+  static snapToGrid(position: Position, gridSize: number = Config.GRID_SIZE): Position {
+    return {
+      x: Math.round(position.x / gridSize) * gridSize,
+      y: Math.round(position.y / gridSize) * gridSize
+    };
+  }
+  
+  /**
+   * Calculate distance between two points
+   */
+  static distance(p1: Position, p2: Position): number {
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+  
+  /**
+   * Calculate midpoint between two positions
+   */
+  static midpoint(p1: Position, p2: Position): Position {
+    return {
+      x: (p1.x + p2.x) / 2,
+      y: (p1.y + p2.y) / 2
+    };
+  }
+  
+  /**
+   * Normalize a vector
+   */
+  static normalize(vector: Vector2D): Vector2D {
+    const length = Math.sqrt(vector.x * vector.x + vector.y * vector.y);
+    if (length === 0) return { x: 0, y: 0 };
+    return {
+      x: vector.x / length,
+      y: vector.y / length
+    };
+  }
+  
+  /**
+   * Calculate dot product of two vectors
+   */
+  static dotProduct(v1: Vector2D, v2: Vector2D): number {
+    return v1.x * v2.x + v1.y * v2.y;
+  }
+  
+  /**
+   * Get directional vector from Direction enum
+   */
+  static getDirectionVector(direction: Direction): Vector2D {
+    switch (direction) {
+      case Direction.LEFT:
+        return { x: -1, y: 0 };
+      case Direction.RIGHT:
+        return { x: 1, y: 0 };
+      case Direction.TOP:
+        return { x: 0, y: -1 };
+      case Direction.BOTTOM:
+        return { x: 0, y: 1 };
+      case Direction.OMNI:
+        return { x: 0, y: 0 };
+      default:
+        return { x: 0, y: 0 };
+    }
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Screen to graph coordinate conversion
+2. Graph to screen coordinate conversion
+3. Grid snapping with various grid sizes
+4. Distance calculation
+5. Vector normalization
+6. Direction vector mapping
+
+### Acceptance Criteria
+
+- [ ] Coordinate transformations are accurate
+- [ ] Grid snapping works correctly
+- [ ] Vector operations are mathematically correct
+- [ ] All utility functions handle edge cases
+
+Step 4.2: Path Calculation Strategies
+Prompt for AI Agent:
+markdown# Task: Implement Path Calculation Strategies
+
+Create the geometric path calculation strategies for different connection types.
+
+## Requirements
+
+### File: src/rendering/geometry/PathCalculator.ts
+
+Define the main path calculator interface and factory:
+```typescript
+import { Connection } from '../../domain/models/Connection';
+import { Node } from '../../domain/models/Node';
+import { Handler } from '../../domain/models/Handler';
+import { Position, Vector2D, Direction, ConnectionPathType } from '../../core/types';
+import { CoordinateTransform } from '../../utilsContinue09:18/CoordinateTransform';
+import { BezierPathStrategy } from './BezierPath';
+import { OrthogonalPathStrategy } from './OrthogonalPath';
+import { StraightPathStrategy } from './StraightPath';
+export interface PathEndpoint {
+position: Position;
+direction: Direction;
+vector: Vector2D;
+}
+export interface PathStrategy {
+calculate(source: PathEndpoint, target: PathEndpoint): string;
+}
+export class PathCalculator {
+private static strategies: Record<ConnectionPathType, PathStrategy> = {
+[ConnectionPathType.BEZIER]: new BezierPathStrategy(),
+[ConnectionPathType.SMOOTH_STEP]: new OrthogonalPathStrategy(),
+[ConnectionPathType.STRAIGHT]: new StraightPathStrategy()
+};
+static calculatePath(
+connection: Connection,
+nodes: Node[],
+handlerPositions: Map<string, Position>
+): string {
+const endpoints = this.resolveEndpoints(connection, nodes, handlerPositions);
+if (!endpoints) return '';
+const strategy = this.strategies[connection.pathType];
+return strategy.calculate(endpoints.source, endpoints.target);
+}
+static calculatePositionAlongPath(
+connection: Connection,
+t: number, // 0.0 to 1.0
+nodes: Node[],
+handlerPositions: Map<string, Position>
+): Position | null {
+const endpoints = this.resolveEndpoints(connection, nodes, handlerPositions);
+if (!endpoints) return null;
+// For now, simple linear interpolation
+// Can be enhanced to follow actual path curve
+const { source, target } = endpoints;
+return {
+  x: source.position.x + (target.position.x - source.position.x) * t,
+  y: source.position.y + (target.position.y - source.position.y) * t
+};
+}
+static findClosestTOnPath(
+connection: Connection,
+targetPoint: Position,
+nodes: Node[],
+handlerPositions: Map<string, Position>,
+precision: number = 0.01
+): number {
+// Binary search for closest t
+let minT = 0;
+let maxT = 1;
+let bestT = 0.5;
+let bestDistance = Infinity;
+for (let i = 0; i < 20; i++) {
+  for (let t = minT; t <= maxT; t += precision) {
+    const point = this.calculatePositionAlongPath(connection, t, nodes, handlerPositions);
+    if (!point) continue;
+    
+    const distance = CoordinateTransform.distance(point, targetPoint);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestT = t;
+    }
+  }
+  
+  // Narrow search range
+  minT = Math.max(0, bestT - precision);
+  maxT = Math.min(1, bestT + precision);
+  precision /= 2;
+}
+
+return bestT;
+}
+private static resolveEndpoints(
+connection: Connection,
+nodes: Node[],
+handlerPositions: Map<string, Position>
+): { source: PathEndpoint; target: PathEndpoint } | null {
+const sourcePos = handlerPositions.get(connection.sourceHandlerId);
+const targetPos = handlerPositions.get(connection.targetHandlerId);
+if (!sourcePos || !targetPos) return null;
+
+const sourceHandler = this.findHandler(connection.sourceHandlerId, nodes);
+const targetHandler = this.findHandler(connection.targetHandlerId, nodes);
+
+if (!sourceHandler || !targetHandler) return null;
+
+return {
+  source: {
+    position: sourcePos,
+    direction: sourceHandler.direction,
+    vector: this.calculateHandlerVector(sourceHandler, sourcePos, targetPos)
+  },
+  target: {
+    position: targetPos,
+    direction: targetHandler.direction,
+    vector: this.calculateHandlerVector(targetHandler, targetPos, sourcePos)
+  }
+};
+}
+private static findHandler(handlerId: string, nodes: Node[]): Handler | null {
+for (const node of nodes) {
+const handler = node.handlers.find(h => h.id === handlerId);
+if (handler) return handler;
+}
+return null;
+}
+private static calculateHandlerVector(
+handler: Handler,
+handlerPos: Position,
+otherPos: Position
+): Vector2D {
+if (handler.direction === Direction.OMNI) {
+// Calculate vector pointing toward other endpoint
+const dx = otherPos.x - handlerPos.x;
+const dy = otherPos.y - handlerPos.y;
+return CoordinateTransform.normalize({ x: dx, y: dy });
+}
+return CoordinateTransform.getDirectionVector(handler.direction);
+}
+}
+
+### File: src/rendering/geometry/StraightPath.ts
+```typescript
+import { PathStrategy, PathEndpoint } from './PathCalculator';
+
+export class StraightPathStrategy implements PathStrategy {
+  calculate(source: PathEndpoint, target: PathEndpoint): string {
+    return `M ${source.position.x},${source.position.y} L ${target.position.x},${target.position.y}`;
+  }
+}
+```
+
+### File: src/rendering/geometry/BezierPath.ts
+```typescript
+import { PathStrategy, PathEndpoint } from './PathCalculator';
+import { Position } from '../../core/types';
+import { CoordinateTransform } from '../../utils/CoordinateTransform';
+import { Config } from '../../core/Config';
+
+export class BezierPathStrategy implements PathStrategy {
+  calculate(source: PathEndpoint, target: PathEndpoint): string {
+    const controlPoints = this.calculateControlPoints(source, target);
+    
+    return `M ${source.position.x},${source.position.y} C ${controlPoints[0].x},${controlPoints[0].y} ${controlPoints[1].x},${controlPoints[1].y} ${target.position.x},${target.position.y}`;
+  }
+  
+  private calculateControlPoints(
+    source: PathEndpoint,
+    target: PathEndpoint
+  ): [Position, Position] {
+    const distance = CoordinateTransform.distance(source.position, target.position);
+    
+    // Base curvature: 50% of distance
+    let curvature = distance * 0.5;
+    
+    // Enforce minimum clearance
+    curvature = Math.max(curvature, Config.CLEARANCE);
+    
+    // Detect backtracking (vectors pointing toward each other)
+    const dotProduct = CoordinateTransform.dotProduct(source.vector, target.vector);
+    if (dotProduct < -0.5) {
+      // Boost curvature for difficult geometry
+      curvature = Math.max(curvature, distance * 0.75);
+    }
+    
+    // Calculate control points along handler vectors
+    const cp1: Position = {
+      x: source.position.x + source.vector.x * curvature,
+      y: source.position.y + source.vector.y * curvature
+    };
+    
+    const cp2: Position = {
+      x: target.position.x + target.vector.x * curvature,
+      y: target.position.y + target.vector.y * curvature
+    };
+    
+    return [cp1, cp2];
+  }
+}
+```
+
+### File: src/rendering/geometry/OrthogonalPath.ts
+```typescript
+import { PathStrategy, PathEndpoint } from './PathCalculator';
+import { Position, Direction } from '../../core/types';
+import { Config } from '../../core/Config';
+
+export class OrthogonalPathStrategy implements PathStrategy {
+  calculate(source: PathEndpoint, target: PathEndpoint): string {
+    const points = this.buildOrthogonalPoints(source, target);
+    const optimized = this.filterColinearPoints(points);
+    return this.applyRoundedCorners(optimized, Config.CORNER_RADIUS);
+  }
+  
+  private buildOrthogonalPoints(
+    source: PathEndpoint,
+    target: PathEndpoint
+  ): Position[] {
+    const points: Position[] = [source.position];
+    
+    // Determine routing based on handler directions
+    const sourceAxis = this.getAxis(source.direction);
+    const targetAxis = this.getAxis(target.direction);
+    
+    if (sourceAxis === 'horizontal' && targetAxis === 'horizontal') {
+      this.routeHorizontalHorizontal(source, target, points);
+    } else if (sourceAxis === 'vertical' && targetAxis === 'vertical') {
+      this.routeVerticalVertical(source, target, points);
+    } else if (sourceAxis === 'horizontal' && targetAxis === 'vertical') {
+      this.routeHorizontalVertical(source, target, points);
+    } else {
+      this.routeVerticalHorizontal(source, target, points);
+    }
+    
+    points.push(target.position);
+    return points;
+  }
+  
+  private getAxis(direction: Direction): 'horizontal' | 'vertical' {
+    return (direction === Direction.LEFT || direction === Direction.RIGHT) ? 'horizontal' : 'vertical';
+  }
+  
+  private routeHorizontalHorizontal(
+    source: PathEndpoint,
+    target: PathEndpoint,
+    points: Position[]
+  ): void {
+    const midX = (source.position.x + target.position.x) / 2;
+    points.push({ x: midX, y: source.position.y });
+    points.push({ x: midX, y: target.position.y });
+  }
+  
+  private routeVerticalVertical(
+    source: PathEndpoint,
+    target: PathEndpoint,
+    points: Position[]
+  ): void {
+    const midY = (source.position.y + target.position.y) / 2;
+    points.push({ x: source.position.x, y: midY });
+    points.push({ x: target.position.x, y: midY });
+  }
+  
+  private routeHorizontalVertical(
+    source: PathEndpoint,
+    target: PathEndpoint,
+    points: Position[]
+  ): void {
+    // Exit horizontally, arrive vertically
+    const escapeX = source.position.x + source.vector.x * Config.CLEARANCE;
+    points.push({ x: escapeX, y: source.position.y });
+    points.push({ x: escapeX, y: target.position.y });
+  }
+  
+  private routeVerticalHorizontal(
+    source: PathEndpoint,
+    target: PathEndpoint,
+    points: Position[]
+  ): void {
+    // Exit vertically, arrive horizontally
+    const escapeY = source.position.y + source.vector.y * Config.CLEARANCE;
+    points.push({ x: source.position.x, y: escapeY });
+    points.push({ x: target.position.x, y: escapeY });
+  }
+  
+  private filterColinearPoints(points: Position[]): Position[] {
+    if (points.length < 3) return points;
+    
+    const filtered: Position[] = [points[0]];
+    
+    for (let i = 1; i < points.length - 1; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const next = points[i + 1];
+      
+      // Check if current point is colinear
+      const isColinear = 
+        (prev.x === curr.x && curr.x === next.x) ||
+        (prev.y === curr.y && curr.y === next.y);
+      
+      if (!isColinear) {
+        filtered.push(curr);
+      }
+    }
+    
+    filtered.push(points[points.length - 1]);
+    return filtered;
+  }
+  
+  private applyRoundedCorners(points: Position[], radius: number): string {
+    if (points.length < 2) return '';
+    
+    let path = `M ${points[0].x},${points[0].y}`;
+    
+    for (let i = 1; i < points.length - 1; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const next = points[i + 1];
+      
+      // Calculate approach and exit points
+      const dx1 = curr.x - prev.x;
+      const dy1 = curr.y - prev.y;
+      const len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+      
+      const dx2 = next.x - curr.x;
+      const dy2 = next.y - curr.y;
+      const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+      
+      const actualRadius = Math.min(radius, len1 / 2, len2 / 2);
+      
+      const approachX = curr.x - (dx1 / len1) * actualRadius;
+      const approachY = curr.y - (dy1 / len1) * actualRadius;
+      
+      const exitX = curr.x + (dx2 / len2) * actualRadius;
+      const exitY = curr.y + (dy2 / len2) * actualRadius;
+      
+      path += ` L ${approachX},${approachY} Q ${curr.x},${curr.y} ${exitX},${exitY}`;
+    }
+    
+    path += ` L ${points[points.length - 1].x},${points[points.length - 1].y}`;
+    return path;
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Straight path calculation
+2. Bezier control point calculation
+3. Orthogonal routing for all direction combinations
+4. Colinear point filtering
+5. Rounded corner application
+6. Position along path calculation
+7. Closest t-value finding
+
+### Acceptance Criteria
+
+- [ ] All path strategies produce valid SVG paths
+- [ ] Bezier curves adapt to geometry
+- [ ] Orthogonal paths avoid node overlaps
+- [ ] Rounded corners are smooth
+- [ ] Label positioning works correctly
+
+Phase 4 Summary
+Completed Deliverables:
+
+✅ Coordinate transformation utilities
+✅ Path calculation strategies (Bezier, Orthogonal, Straight)
+✅ Label positioning system
+
+Testing Checklist:
+
+ Coordinate transformations are accurate
+ All path strategies work correctly
+ Label positioning follows paths
+
+Next Phase: Phase 5 - Rendering Engine
+
+PHASE 5: Rendering Engine
+Overview
+Build the SVG rendering system using D3.js for efficient DOM manipulation and visual updates.
+Objectives
+
+Implement main render loop with dirty flags
+Create node and link renderers
+Build selection visual feedback
+Implement grid background
+Support high-frequency updates
+
+Deliverables
+src/
+└── rendering/
+    ├── RenderEngine.ts    # Main render loop
+    ├── NodeRenderer.ts    # Node visualization
+    ├── LinkRenderer.ts    # Connection rendering
+    └── Grid.ts            # Grid background
+
+
+Step 5.1: Grid Background Renderer
+Prompt for AI Agent:
+markdown# Task: Implement Grid Background
+
+Create the infinite grid background that provides visual reference for the canvas.
+
+## Requirements
+
+### File: src/rendering/Grid.ts
+```typescript
+import * as d3 from 'd3';
+import { Transform } from '../core/types';
+import { Config } from '../core/Config';
+
+export class Grid {
+  private svg: d3.Selection;
+  private gridGroup: d3.Selection;
+  private defs: d3.Selection;
+  
+  constructor(svg: SVGSVGElement) {
+    this.svg = d3.select(svg);
+    
+    // Create defs for pattern
+    this.defs = this.svg.select('defs').empty() 
+      ? this.svg.append('defs')
+      : this.svg.select('defs');
+    
+    // Create grid group (lowest layer)
+    this.gridGroup = this.svg.append('g')
+      .attr('class', 'grid-layer')
+      .lower(); // Ensure it's at the bottom
+    
+    this.createGridPattern();
+    this.renderGrid();
+  }
+  
+  private createGridPattern(): void {
+    // Remove existing pattern if any
+    this.defs.select('#grid-pattern').remove();
+    
+    const pattern = this.defs.append('pattern')
+      .attr('id', 'grid-pattern')
+      .attr('width', Config.GRID_SIZE)
+      .attr('height', Config.GRID_SIZE)
+      .attr('patternUnits', 'userSpaceOnUse');
+    
+    // Small dots at grid intersections
+    pattern.append('circle')
+      .attr('cx', 0)
+      .attr('cy', 0)
+      .attr('r', 1)
+      .attr('fill', Config.GRID_COLOR);
+  }
+  
+  private renderGrid(): void {
+    this.gridGroup.selectAll('*').remove();
+    
+    this.gridGroup.append('rect')
+      .attr('class', 'grid-background')
+      .attr('x', -10000)
+      .attr('y', -10000)
+      .attr('width', 20000)
+      .attr('height', 20000)
+      .attr('fill', 'url(#grid-pattern)');
+  }
+  
+  update(transform: Transform): void {
+    this.gridGroup.attr('transform', 
+      `translate(${transform.x},${transform.y}) scale(${transform.k})`
+    );
+  }
+  
+  setVisible(visible: boolean): void {
+    this.gridGroup.style('display', visible ? null : 'none');
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Grid pattern creation
+2. Transform updates
+3. Visibility toggle
+
+### Acceptance Criteria
+
+- [ ] Grid pattern renders correctly
+- [ ] Grid updates with viewport transform
+- [ ] Grid can be shown/hidden
+
+Step 5.2: Node Renderer
+Prompt for AI Agent:
+markdown# Task: Implement Node Rendering System
+
+Create the node renderer that handles SVG generation for nodes and handlers using D3.js.
+
+## Requirements
+
+### File: src/rendering/NodeRenderer.ts
+```typescript
+import * as d3 from 'd3';
+import { Node } from '../domain/models/Node';
+import { Handler } from '../domain/models/Handler';
+import { Registry } from '../core/Registry';
+import { Store } from '../core/State';
+import { Config } from '../core/Config';
+import { Selection } from '../core/types';
+
+interface RenderContext {
+  selection: d3.Selection;
+  node: Node;
+  registry: Registry;
+  store: Store;
+}
+
+export class NodeRenderer {
+  private registry: Registry;
+  private store: Store;
+  private selectionState: Selection | null = null;
+  
+  constructor(registry: Registry, store: Store) {
+    this.registry = registry;
+    this.store = store;
+  }
+  
+  setSelection(selection: Selection | null): void {
+    this.selectionState = selection;
+  }
+  
+  render(
+    container: d3.Selection,
+    nodes: Node[]
+  ): void {
+    // Bind data with key function for object constancy
+    const nodeGroups = container
+      .selectAll('g.node')
+      .data(nodes, (d: Node) => d.id);
+    
+    // EXIT: Remove deleted nodes
+    nodeGroups.exit().remove();
+    
+    // ENTER: Create new nodes
+    const enterGroups = nodeGroups.enter()
+      .append('g')
+      .attr('class', 'node')
+      .attr('data-node-id', d => d.id)
+      .attr('data-node-type', d => d.type);
+    
+    // Create node structure
+    enterGroups.each((d, i, nodes) => {
+      const group = d3.select(nodes[i]);
+      this.createNodeStructure(group, d);
+    });
+    
+    // UPDATE: Merge enter + update selections
+    const allGroups = enterGroups.merge(nodeGroups);
+    
+    // Update positions
+    allGroups.attr('transform', d => `translate(${d.position.x},${d.position.y})`);
+    
+    // Update content
+    allGroups.each((d, i, nodes) => {
+      const group = d3.select(nodes[i]);
+      this.updateNodeContent(group, d);
+    });
+    
+    // Update selection styles
+    this.updateSelectionStyles(allGroups);
+  }
+  
+  private createNodeStructure(
+    group: d3.Selection,
+    node: Node
+  ): void {
+    // Node body
+    group.append('path')
+      .attr('class', 'node-body')
+      .style('cursor', 'move');
+    
+    // Icon container
+    group.append('g')
+      .attr('class', 'node-icon');
+    
+    // Label
+    group.append('text')
+      .attr('class', 'node-label')
+      .attr('text-anchor', 'middle')
+      .style('pointer-events', 'none')
+      .style('user-select', 'none');
+    
+    // Handlers container
+    group.append('g')
+      .attr('class', 'handlers');
+  }
+  
+  private updateNodeContent(
+    group: d3.Selection,
+    node: Node
+  ): void {
+    const context: RenderContext = {
+      selection: group,
+      node,
+      registry: this.registry,
+      store: this.store
+    };
+    
+    this.renderBody(context);
+    this.renderIcon(context);
+    this.renderLabel(context);
+    this.renderHandlers(context);
+  }
+  
+  private renderBody(context: RenderContext): void {
+    const { selection, node } = context;
+    const definition = this.registry.getNodeDefinition(node.type);
+    if (!definition) return;
+    
+    const body = selection.select('.node-body');
+    
+    // Get shape template and attributes
+    const template = node.getShapeTemplate();
+    const attributes = node.getShapeAttributes();
+    
+    body.attr('d', template);
+    
+    // Apply custom attributes
+    if (attributes) {
+      Object.entries(attributes).forEach(([key, value]) => {
+        body.attr(key, value);
+      });
+    }
+    
+    // Apply styles
+    body
+      .style('fill', node.style.fill || Config.DEFAULT_NODE_FILL)
+      .style('stroke', node.style.stroke || Config.DEFAULT_NODE_STROKE)
+      .style('stroke-width', node.style.strokeWidth || 2);
+  }
+  
+  private renderIcon(context: RenderContext): void {
+    const { selection, node } = context;
+    const definition = this.registry.getNodeDefinition(node.type);
+    if (!definition) return;
+    
+    const iconGroup = selection.select('.node-icon');
+    iconGroup.selectAll('*').remove();
+    
+    const iconPath = definition.getIconPath();
+    if (!iconPath) return;
+    
+    // Icon positioned at top-left with padding
+    const iconSize = 24;
+    const padding = 12;
+    
+    iconGroup.append('path')
+      .attr('d', iconPath)
+      .attr('transform', `translate(${padding},${padding}) scale(${iconSize / 24})`)
+      .style('fill', 'currentColor')
+      .style('pointer-events', 'none');
+  }
+  
+  private renderLabel(context: RenderContext): void {
+    const { selection, node } = context;
+    
+    const label = selection.select('.node-label');
+    
+    label
+      .attr('x', node.width / 2)
+      .attr('y', node.height / 2 + 5) // Center vertically (+5 for baseline)
+      .text(node.label)
+      .style('font-size', node.style.fontSize || Config.DEFAULT_FONT_SIZE)
+      .style('font-family', Config.DEFAULT_FONT_FAMILY);
+    
+    // Truncate if too long
+    this.truncateText(label, node.width - 20);
+  }
+  
+  private truncateText(
+    textElement: d3.Selection,
+    maxWidth: number
+  ): void {
+    const text = textElement.text();
+    const textLength = (textElement.node() as SVGTextElement).getComputedTextLength();
+    
+    if (textLength <= maxWidth) return;
+    
+    let truncated = text;
+    while (truncated.length > 0 && 
+           (textElement.node() as SVGTextElement).getComputedTextLength() > maxWidth) {
+      truncated = truncated.slice(0, -1);
+      textElement.text(truncated + '…');
+    }
+  }
+  
+  private renderHandlers(context: RenderContext): void {
+    const { selection, node } = context;
+    const handlersGroup = selection.select('.handlers');
+    
+    // Bind handler data
+    const handlerGroups = handlersGroup
+      .selectAll('g.handler')
+      .data(node.handlers, (d: Handler) => d.id);
+    
+    // EXIT
+    handlerGroups.exit().remove();
+    
+    // ENTER
+    const enterHandlers = handlerGroups.enter()
+      .append('g')
+      .attr('class', 'handler')
+      .attr('data-handler-id', d => d.id)
+      .attr('data-handler-type', d => d.type)
+      .attr('data-flow', d => d.flow);
+    
+    enterHandlers.append('path')
+      .attr('class', 'handler-shape')
+      .style('cursor', 'crosshair');
+    
+    enterHandlers.append('circle')
+      .attr('class', 'handler-hitarea')
+      .attr('r', 8)
+      .style('fill', 'transparent')
+      .style('cursor', 'crosshair');
+    
+    // UPDATE
+    const allHandlers = enterHandlers.merge(handlerGroups);
+    
+    allHandlers.attr('transform', d => `translate(${d.offset.x},${d.offset.y})`);
+    
+    allHandlers.select('.handler-shape')
+      .attr('d', d => d.getShapeTemplate())
+      .style('fill', '#ffffff')
+      .style('stroke', '#666666')
+      .style('stroke-width', 2);
+  }
+  
+  private updateSelectionStyles(
+    groups: d3.Selection
+  ): void {
+    groups.each((d, i, nodes) => {
+      const group = d3.select(nodes[i]);
+      const isSelected = this.selectionState?.type === 'node' && 
+                        this.selectionState?.id === d.id;
+      
+      group.select('.node-body')
+        .classed('selected', isSelected)
+        .style('stroke', isSelected ? Config.SELECTION_COLOR : null)
+        .style('stroke-width', isSelected ? 3 : null);
+    });
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Node rendering with D3 data binding
+2. Enter/update/exit pattern
+3. Selection styling
+4. Text truncation
+5. Handler rendering
+
+### Acceptance Criteria
+
+- [ ] Nodes render with correct SVG structure
+- [ ] D3 object constancy works (smooth updates)
+- [ ] Selection visual feedback is clear
+- [ ] Text truncation works correctly
+- [ ] Handlers are positioned correctly
+
+Step 5.3: Link Renderer
+Prompt for AI Agent:
+markdown# Task: Implement Connection Rendering System
+
+Create the link renderer for drawing connections between nodes.
+
+## Requirements
+
+### File: src/rendering/LinkRenderer.ts
+```typescript
+import * as d3 from 'd3';
+import { Connection } from '../domain/models/Connection';
+import { Node } from '../domain/models/Node';
+import { Registry } from '../core/Registry';
+import { Store } from '../core/State';
+import { PathCalculator } from './geometry/PathCalculator';
+import { Config } from '../core/Config';
+import { Selection } from '../core/types';
+
+export class LinkRenderer {
+  private registry: Registry;
+  private store: Store;
+  private selectionState: Selection | null = null;
+  
+  constructor(registry: Registry, store: Store) {
+    this.registry = registry;
+    this.store = store;
+  }
+  
+  setSelection(selection: Selection | null): void {
+    this.selectionState = selection;
+  }
+  
+  render(
+    container: d3.Selection,
+    connections: Connection[],
+    nodes: Node[]
+  ): void {
+    // Get handler positions from store cache
+    const handlerPositions = this.getHandlerPositions();
+    
+    // Bind data
+    const linkGroups = container
+      .selectAll('g.connection')
+      .data(connections, (d: Connection) => d.id);
+    
+    // EXIT
+    linkGroups.exit().remove();
+    
+    // ENTER
+    const enterGroups = linkGroups.enter()
+      .append('g')
+      .attr('class', 'connection')
+      .attr('data-connection-id', d => d.id);
+    
+    // Create link structure
+    enterGroups.each((d, i, elements) => {
+      const group = d3.select(elements[i]);
+      this.createLinkStructure(group);
+    });
+    
+    // UPDATE
+    const allGroups = enterGroups.merge(linkGroups);
+    
+    allGroups.each((d, i, elements) => {
+      const group = d3.select(elements[i]);
+      this.updateLinkContent(group, d, nodes, handlerPositions);
+    });
+    
+    // Update selection styles
+    this.updateSelectionStyles(allGroups);
+  }
+  
+  renderGhost(
+    container: d3.Selection,
+    sourceHandlerId: string,
+    targetPosition: { x: number; y: number }
+  ): void {
+    container.selectAll('.ghost-connection').remove();
+    
+    const sourcePos = this.store.getHandlerAbsolutePosition(sourceHandlerId);
+    if (!sourcePos) return;
+    
+    const ghostGroup = container.append('g')
+      .attr('class', 'ghost-connection');
+    
+    ghostGroup.append('path')
+      .attr('class', 'ghost-path')
+      .attr('d', `M ${sourcePos.x},${sourcePos.y} L ${targetPosition.x},${targetPosition.y}`)
+      .style('stroke', Config.GHOST_CONNECTION_COLOR)
+      .style('stroke-width', 2)
+      .style('stroke-dasharray', '5,5')
+      .style('fill', 'none')
+      .style('pointer-events', 'none');
+  }
+  
+  clearGhost(container: d3.Selection): void {
+    container.selectAll('.ghost-connection').remove();
+  }
+  
+  private createLinkStructure(
+    group: d3.Selection
+  ): void {
+    // Invisible hit area for easier clicking
+    group.append('path')
+      .attr('class', 'connection-hitarea')
+      .style('stroke', 'transparent')
+      .style('stroke-width', 10)
+      .style('fill', 'none')
+      .style('cursor', 'pointer');
+    
+    // Visible path
+    group.append('path')
+      .attr('class', 'connection-path')
+      .style('fill', 'none')
+      .style('pointer-events', 'none');
+    
+    // Label group (optional)
+    const labelGroup = group.append('g')
+      .attr('class', 'connection-label')
+      .style('display', 'none');
+    
+    labelGroup.append('rect')
+      .attr('class', 'label-background')
+      .attr('rx', 4)
+      .attr('ry', 4);
+    
+    labelGroup.append('text')
+      .attr('class', 'label-text')
+      .attr('text-anchor', 'middle')
+      .attr('dominant-baseline', 'middle');
+  }
+  
+  private updateLinkContent(
+    group: d3.Selection,
+    connection: Connection,
+    nodes: Node[],
+    handlerPositions: Map
+  ): void {
+    // Calculate path
+    const pathString = PathCalculator.calculatePath(connection, nodes, handlerPositions);
+    
+    // Update paths
+    group.select('.connection-hitarea').attr('d', pathString);
+    
+    group.select('.connection-path')
+      .attr('d', pathString)
+      .style('stroke', connection.style.stroke || Config.DEFAULT_LINK_STROKE)
+      .style('stroke-width', connection.style.strokeWidth || Config.DEFAULT_LINK_WIDTH)
+      .style('stroke-dasharray', connection.style.strokeDasharray || null);
+    
+    // Update label if present
+    if (connection.label) {
+      this.renderLabel(group, connection, nodes, handlerPositions);
+    } else {
+      group.select('.connection-label').style('display', 'none');
+    }
+  }
+  
+  private renderLabel(
+    group: d3.Selection,
+    connection: Connection,
+    nodes: Node[],
+    handlerPositions: Map
+  ): void {
+    if (!connection.label) return;
+    
+    const labelGroup = group.select('.connection-label');
+    labelGroup.style('display', null);
+    
+    // Calculate position along path
+    const position = PathCalculator.calculatePositionAlongPath(
+      connection,
+      connection.label.offset,
+      nodes,
+      handlerPositions
+    );
+    
+    if (!position) return;
+    
+    labelGroup.attr('transform', `translate(${position.x},${position.y})`);
+    
+    // Update text
+    const text = labelGroup.select('.label-text')
+      .text(connection.label.text)
+      .style('font-size', connection.label.fontSize || 12)
+      .style('fill', connection.label.color || '#333333');
+    
+    // Update background
+    const bbox = (text.node() as SVGTextElement).getBBox();
+    const padding = 4;
+    
+    labelGroup.select('.label-background')
+      .attr('x', bbox.x - padding)
+      .attr('y', bbox.y - padding)
+      .attr('width', bbox.width + padding * 2)
+      .attr('height', bbox.height + padding * 2)
+      .style('fill', connection.label.bgColor || '#ffffff')
+      .style('stroke', '#cccccc')
+      .style('stroke-width', 1);
+  }
+  
+  private updateSelectionStyles(
+    groups: d3.Selection
+  ): void {
+    groups.each((d, i, elements) => {
+      const group = d3.select(elements[i]);
+      const isSelected = this.selectionState?.type === 'link' && 
+                        this.selectionState?.id === d.id;
+      
+      group.select('.connection-path')
+        .classed('selected', isSelected)
+        .style('stroke', isSelected ? Config.SELECTION_COLOR : 
+               (d.style.stroke || Config.DEFAULT_LINK_STROKE))
+        .style('stroke-width', isSelected ? 
+               (d.style.strokeWidth || Config.DEFAULT_LINK_WIDTH) + 1 : 
+               (d.style.strokeWidth || Config.DEFAULT_LINK_WIDTH));
+    });
+  }
+  
+  private getHandlerPositions(): Map {
+    const map = new Map();
+    
+    const nodes = this.store.getAllNodes();
+    nodes.forEach(node => {
+      node.handlers.forEach(handler => {
+        const pos = this.store.getHandlerAbsolutePosition(handler.id);
+        if (pos) {
+          map.set(handler.id, pos);
+        }
+      });
+    });
+    
+    return map;
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Link path rendering
+2. Ghost connection display
+3. Label positioning
+4. Selection styling
+
+### Acceptance Criteria
+
+- [ ] Connections render with correct paths
+- [ ] Ghost connections show during drag
+- [ ] Labels position correctly along paths
+- [ ] Selection visual feedback works
+
+Step 5.4: Main Render Engine
+Prompt for AI Agent:
+markdown# Task: Implement Main Rendering Engine
+
+Create the orchestrator that manages the render loop, dirty flags, and layer coordination.
+
+## Requirements
+
+### File: src/rendering/RenderEngine.ts
+```typescript
+import * as d3 from 'd3';
+import { Store } from '../core/State';
+import { Registry } from '../core/Registry';
+import { EventBus } from '../core/EventBus';
+import { SelectionManager } from '../core/SelectionManager';
+import { NodeRenderer } from './NodeRenderer';
+import { LinkRenderer } from './LinkRenderer';
+import { Grid } from './Grid';
+import { Transform } from '../core/types';
+
+interface RenderState {
+  isDirty: boolean;
+  isGhostDirty: boolean;
+  rafId: number | null;
+}
+
+export class RenderEngine {
+  private svg: d3.Selection;
+  private layers: {
+    grid: Grid;
+    notes: d3.Selection;
+    links: d3.Selection;
+    nodes: d3.Selection;
+    overlay: d3.Selection;
+  };
+  
+  private store: Store;
+  private registry: Registry;
+  private eventBus: EventBus;
+  private selectionManager: SelectionManager;
+  
+  private nodeRenderer: NodeRenderer;
+  private linkRenderer: LinkRenderer;
+  
+  private state: RenderState;
+  
+  constructor(
+    svgElement: SVGSVGElement,
+    store: Store,
+    registry: Registry,
+    eventBus: EventBus,
+    selectionManager: SelectionManager
+  ) {
+    this.svg = d3.select(svgElement);
+    this.store = store;
+    this.registry = registry;
+    this.eventBus = eventBus;
+    this.selectionManager = selectionManager;
+    
+    this.state = {
+      isDirty: true,
+      isGhostDirty: false,
+      rafId: null
+    };
+    
+    this.nodeRenderer = new NodeRenderer(registry, store);
+    this.linkRenderer = new LinkRenderer(registry, store);
+    
+    this.initializeLayers();
+    this.subscribeToEvents();
+  }
+  
+  private initializeLayers(): void {
+    // Clear existing content
+    this.svg.selectAll('*').remove();
+    
+    // Add defs
+    this.svg.append('defs');
+    
+    // Create grid
+    this.layers = {
+      grid: new Grid(this.svg.node()!),
+      notes: this.svg.append('g').attr('class', 'notes-layer'),
+      links: this.svg.append('g').attr('class', 'links-layer'),
+      nodes: this.svg.append('g').attr('class', 'nodes-layer'),
+      overlay: this.svg.append('g').attr('class', 'overlay-layer')
+    };
+  }
+  
+  private subscribeToEvents(): void {
+    // Set dirty flag on any state change
+    this.eventBus.on('RENDER_REQUESTED', () => this.requestRender());
+    this.eventBus.on('SELECTION_CHANGED', (selection) => {
+      this.nodeRenderer.setSelection(selection);
+      this.linkRenderer.setSelection(selection);
+      this.requestRender();
+    });
+  }
+  
+  startRenderLoop(): void {
+    this.renderLoop();
+  }
+  
+  stopRenderLoop(): void {
+    if (this.state.rafId !== null) {
+      cancelAnimationFrame(this.state.rafId);
+      this.state.rafId = null;
+    }
+  }
+  
+  private renderLoop = (): void => {
+    if (this.state.isDirty) {
+      this.render();
+      this.state.isDirty = false;
+    }
+    
+    if (this.state.isGhostDirty) {
+      this.renderGhost();
+      this.state.isGhostDirty = false;
+    }
+    
+    this.state.rafId = requestAnimationFrame(this.renderLoop);
+  };
+  
+  requestRender(): void {
+    this.state.isDirty = true;
+  }
+  
+  requestGhostRender(): void {
+    this.state.isGhostDirty = true;
+  }
+  
+  render(): void {
+    const nodes = this.store.getAllNodes();
+    const links = this.store.getAllLinks();
+    const transform = this.store.getTransform();
+    
+    // Update transform on all layers
+    this.updateTransform(transform);
+    
+    // Render in layer order
+    this.linkRenderer.render(this.layers.links, links, nodes);
+    this.nodeRenderer.render(this.layers.nodes, nodes);
+  }
+  
+  renderGhost(): void {
+    // Ghost rendering handled separately for performance
+  }
+  
+  updateTransform(transform: Transform): void {
+    const transformString = `translate(${transform.x},${transform.y}) scale(${transform.k})`;
+    
+    this.layers.grid.update(transform);
+    this.layers.notes.attr('transform', transformString);
+    this.layers.links.attr('transform', transformString);
+    this.layers.nodes.attr('transform', transformString);
+  }
+  
+  updateLinksOnly(nodeId?: string): void {
+    const nodes = this.store.getAllNodes();
+    const links = nodeId 
+      ? this.store.getLinksForNode(nodeId)
+      : this.store.getAllLinks();
+    
+    this.linkRenderer.render(this.layers.links, links, nodes);
+  }
+  
+  showGhostConnection(sourceHandlerId: string, targetPosition: { x: number; y: number }): void {
+    const transform = this.store.getTransform();
+    
+    // Transform target position to graph coordinates
+    const graphPosition = {
+      x: (targetPosition.x - transform.x) / transform.k,
+      y: (targetPosition.y - transform.y) / transform.k
+    };
+    
+    this.linkRenderer.renderGhost(this.layers.overlay, sourceHandlerId, graphPosition);
+  }
+  
+  clearGhostConnection(): void {
+    this.linkRenderer.clearGhost(this.layers.overlay);
+  }
+  
+  destroy(): void {
+    this.stopRenderLoop();
+    this.svg.selectAll('*').remove();
+  }
+}
+```
+
+### Testing Requirements
+
+Create integration tests for:
+1. Render loop execution
+2. Dirty flag mechanism
+3. Layer ordering
+4. Transform updates
+5. Selective link rendering
+
+### Acceptance Criteria
+
+- [ ] Render loop runs smoothly at 60 FPS
+- [ ] Dirty flags prevent unnecessary renders
+- [ ] Layers render in correct order
+- [ ] Transform updates affect all layers
+- [ ] Ghost connections work correctly
+```
+
+---
+
+## Phase 5 Summary
+
+**Completed Deliverables:**
+- ✅ Grid background renderer
+- ✅ Node rendering with D3.js
+- ✅ Link rendering with path calculation
+- ✅ Main render engine with dirty flags
+
+**Testing Checklist:**
+- [ ] Grid renders and updates correctly
+- [ ] Nodes use D3 enter/update/exit pattern
+- [ ] Links calculate paths correctly
+- [ ] Render loop is performant
+
+**Next Phase:** Phase 6 - Input System
+
+---
+
+# PHASE 6: Input System
+
+## Overview
+
+Implement the interaction state machine that handles user input (mouse events, keyboard) and coordinates with the rendering and state systems.
+
+## Objectives
+
+- Build state machine for interaction modes
+- Implement node dragging with grid snapping
+- Create connection creation flow
+- Handle selection interactions
+- Integrate inline text editing
+
+## Deliverables
+```
+src/
+├── services/
+│   └── InputSystem.ts       # Main input coordinator
+└── components/
+    └── InlineEditor.ts      # Text editing overlay
+
+Step 6.1: Inline Text Editor
+Prompt for AI Agent:
+markdown# Task: Implement Inline Text Editor
+
+Create an HTML input overlay for inline editing of node labels and notes.
+
+## Requirements
+
+### File: src/components/InlineEditor.ts
+```typescript
+import { Position } from '../core/types';
+
+export interface InlineEditorConfig {
+  initialValue: string;
+  position: Position;
+  fontSize: number;
+  fontFamily: string;
+  onCommit: (value: string) => void;
+  onCancel: () => void;
+}
+
+export class InlineEditor {
+  private input: HTMLInputElement | null = null;
+  private container: HTMLElement;
+  
+  constructor(container: HTMLElement) {
+    this.container = container;
+  }
+  
+  show(config: InlineEditorConfig): void {
+    this.hide(); // Clean up any existing editor
+    
+    this.input = document.createElement('input');
+    this.input.type = 'text';
+    this.input.value = config.initialValue;
+    this.input.className = 'inline-editor';
+    
+    // Style to match SVG text
+    Object.assign(this.input.style, {
+      position: 'absolute',
+      left: `${config.position.x}px`,
+      top: `${config.position.y}px`,
+      fontSize: `${config.fontSize}px`,
+      fontFamily: config.fontFamily,
+      border: '2px solid #0066cc',
+      borderRadius: '4px',
+      padding: '4px 8px',
+      outline: 'none',
+      background: '#ffffff',
+      zIndex: '1000'
+    });
+    
+    this.container.appendChild(this.input);
+    this.input.focus();
+    this.input.select();
+    
+    // Event handlers
+    this.input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.Continue09:08preventDefault();
+config.onCommit(this.input!.value);
+this.hide();
+} else if (e.key === 'Escape') {
+e.preventDefault();
+config.onCancel();
+this.hide();
+}
+});
+this.input.addEventListener('blur', () => {
+  config.onCommit(this.input!.value);
+  this.hide();
+});
+}
+hide(): void {
+if (this.input) {
+this.input.remove();
+this.input = null;
+}
+}
+isActive(): boolean {
+return this.input !== null;
+}
+}
+
+### Testing Requirements
+
+Create unit tests for:
+1. Editor creation and positioning
+2. Commit on Enter
+3. Cancel on Escape
+4. Commit on blur
+
+### Acceptance Criteria
+
+- [ ] Editor appears at correct position
+- [ ] Styles match SVG text
+- [ ] Keyboard shortcuts work
+- [ ] Cleanup on hide
+
+Step 6.2: Input System State Machine
+Prompt for AI Agent:
+markdown# Task: Implement Input System with State Machine
+
+Create the input handling system using the State pattern for different interaction modes.
+
+## Requirements
+
+### File: src/services/InputSystem.ts
+```typescript
+import * as d3 from 'd3';
+import { Store } from '../core/State';
+import { Registry } from '../core/Registry';
+import { EventBus } from '../core/EventBus';
+import { SelectionManager } from '../core/SelectionManager';
+import { RenderEngine } from '../rendering/RenderEngine';
+import { InlineEditor } from '../components/InlineEditor';
+import { Position, NodeId, HandlerId, Transform } from '../core/types';
+import { CoordinateTransform } from '../utils/CoordinateTransform';
+import { Config } from '../core/Config';
+
+// ========== STATE INTERFACES ==========
+
+abstract class InteractionState {
+  constructor(protected context: InputSystem) {}
+  
+  onMouseDown(event: MouseEvent): void {}
+  onMouseMove(event: MouseEvent): void {}
+  onMouseUp(event: MouseEvent): void {}
+  onDoubleClick(event: MouseEvent): void {}
+  onKeyDown(event: KeyboardEvent): void {}
+  
+  enter(): void {}
+  exit(): void {}
+}
+
+// ========== IDLE STATE ==========
+
+class IdleState extends InteractionState {
+  onMouseDown(event: MouseEvent): void {
+    const target = event.target as SVGElement;
+    
+    // Check what was clicked
+    const nodeElement = target.closest('[data-node-id]') as SVGElement | null;
+    const handlerElement = target.closest('[data-handler-id]') as SVGElement | null;
+    const linkElement = target.closest('[data-connection-id]') as SVGElement | null;
+    
+    if (handlerElement && event.button === 0) {
+      // Start connection creation
+      const handlerId = handlerElement.getAttribute('data-handler-id')!;
+      this.context.setState(new ConnectionCreationState(this.context, handlerId));
+      return;
+    }
+    
+    if (nodeElement && event.button === 0) {
+      // Start node drag
+      const nodeId = nodeElement.getAttribute('data-node-id')!;
+      const node = this.context.store.getNode(nodeId);
+      if (!node) return;
+      
+      const mousePos = this.context.getMousePosition(event);
+      this.context.selectionManager.selectNode(nodeId);
+      this.context.setState(new NodeDragState(
+        this.context,
+        nodeId,
+        { ...node.position },
+        mousePos
+      ));
+      return;
+    }
+    
+    if (linkElement && event.button === 0) {
+      // Select link
+      const linkId = linkElement.getAttribute('data-connection-id')!;
+      this.context.selectionManager.selectLink(linkId);
+      return;
+    }
+    
+    // Click on background - clear selection
+    this.context.selectionManager.clearSelection();
+  }
+  
+  onDoubleClick(event: MouseEvent): void {
+    const target = event.target as SVGElement;
+    const nodeElement = target.closest('[data-node-id]') as SVGElement | null;
+    
+    if (nodeElement) {
+      const nodeId = nodeElement.getAttribute('data-node-id')!;
+      this.context.startNodeLabelEdit(nodeId, event);
+    }
+  }
+}
+
+// ========== NODE DRAG STATE ==========
+
+class NodeDragState extends InteractionState {
+  private hasMoved = false;
+  
+  constructor(
+    context: InputSystem,
+    private nodeId: NodeId,
+    private initialPosition: Position,
+    private startMouse: Position
+  ) {
+    super(context);
+  }
+  
+  enter(): void {
+    // Disable zoom/pan during drag
+    this.context.setZoomEnabled(false);
+  }
+  
+  exit(): void {
+    this.context.setZoomEnabled(true);
+    
+    // Commit to history if moved
+    if (this.hasMoved) {
+      this.context.eventBus.emit('HISTORY_CHANGED', {
+        canUndo: true,
+        canRedo: false
+      });
+    }
+  }
+  
+  onMouseMove(event: MouseEvent): void {
+    const currentMouse = this.context.getMousePosition(event);
+    
+    const dx = currentMouse.x - this.startMouse.x;
+    const dy = currentMouse.y - this.startMouse.y;
+    
+    const newPosition = {
+      x: this.initialPosition.x + dx,
+      y: this.initialPosition.y + dy
+    };
+    
+    // Update node position (high-frequency, no history snapshot yet)
+    this.context.store.moveNode(this.nodeId, newPosition);
+    this.hasMoved = true;
+    
+    // Update only connected links for performance
+    this.context.renderEngine.updateLinksOnly(this.nodeId);
+  }
+  
+  onMouseUp(event: MouseEvent): void {
+    if (this.hasMoved) {
+      // Apply grid snapping
+      const node = this.context.store.getNode(this.nodeId);
+      if (node) {
+        const snapped = CoordinateTransform.snapToGrid(node.position);
+        this.context.store.moveNode(this.nodeId, snapped);
+      }
+    }
+    
+    this.context.setState(new IdleState(this.context));
+  }
+}
+
+// ========== CONNECTION CREATION STATE ==========
+
+class ConnectionCreationState extends InteractionState {
+  constructor(
+    context: InputSystem,
+    private sourceHandlerId: HandlerId
+  ) {
+    super(context);
+  }
+  
+  enter(): void {
+    this.context.setZoomEnabled(false);
+  }
+  
+  exit(): void {
+    this.context.setZoomEnabled(true);
+    this.context.renderEngine.clearGhostConnection();
+  }
+  
+  onMouseMove(event: MouseEvent): void {
+    const mousePos = this.context.getMousePosition(event);
+    this.context.renderEngine.showGhostConnection(this.sourceHandlerId, {
+      x: event.clientX,
+      y: event.clientY
+    });
+  }
+  
+  onMouseUp(event: MouseEvent): void {
+    const target = event.target as SVGElement;
+    const handlerElement = target.closest('[data-handler-id]') as SVGElement | null;
+    
+    if (handlerElement) {
+      const targetHandlerId = handlerElement.getAttribute('data-handler-id')!;
+      
+      if (targetHandlerId !== this.sourceHandlerId) {
+        // Validate and create connection
+        this.context.eventBus.emit('RENDER_REQUESTED', undefined);
+        // Note: Actual connection creation will be in Command API
+        console.log('Create connection:', this.sourceHandlerId, '->', targetHandlerId);
+      }
+    }
+    
+    this.context.setState(new IdleState(this.context));
+  }
+}
+
+// ========== MAIN INPUT SYSTEM ==========
+
+export class InputSystem {
+  private currentState: InteractionState;
+  private svg: d3.Selection;
+  private zoom: d3.ZoomBehavior;
+  private inlineEditor: InlineEditor;
+  
+  store: Store;
+  registry: Registry;
+  eventBus: EventBus;
+  selectionManager: SelectionManager;
+  renderEngine: RenderEngine;
+  
+  constructor(
+    svgElement: SVGSVGElement,
+    store: Store,
+    registry: Registry,
+    eventBus: EventBus,
+    selectionManager: SelectionManager,
+    renderEngine: RenderEngine
+  ) {
+    this.svg = d3.select(svgElement);
+    this.store = store;
+    this.registry = registry;
+    this.eventBus = eventBus;
+    this.selectionManager = selectionManager;
+    this.renderEngine = renderEngine;
+    
+    this.currentState = new IdleState(this);
+    this.inlineEditor = new InlineEditor(svgElement.parentElement!);
+    
+    this.initializeZoom();
+    this.attachEvents();
+  }
+  
+  private initializeZoom(): void {
+    this.zoom = d3.zoom()
+      .scaleExtent([Config.ZOOM_MIN, Config.ZOOM_MAX])
+      .on('zoom', (event) => {
+        const transform: Transform = {
+          k: event.transform.k,
+          x: event.transform.x,
+          y: event.transform.y
+        };
+        this.store.setTransform(transform);
+      });
+    
+    this.svg.call(this.zoom);
+  }
+  
+  private attachEvents(): void {
+    const svgNode = this.svg.node()!;
+    
+    svgNode.addEventListener('mousedown', (e) => this.handleMouseDown(e));
+    svgNode.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+    svgNode.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+    svgNode.addEventListener('dblclick', (e) => this.handleDoubleClick(e));
+    svgNode.addEventListener('contextmenu', (e) => this.handleContextMenu(e));
+    
+    document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+  }
+  
+  private handleMouseDown(event: MouseEvent): void {
+    if (this.inlineEditor.isActive()) return;
+    this.currentState.onMouseDown(event);
+  }
+  
+  private handleMouseMove(event: MouseEvent): void {
+    if (this.inlineEditor.isActive()) return;
+    this.currentState.onMouseMove(event);
+  }
+  
+  private handleMouseUp(event: MouseEvent): void {
+    if (this.inlineEditor.isActive()) return;
+    this.currentState.onMouseUp(event);
+  }
+  
+  private handleDoubleClick(event: MouseEvent): void {
+    if (this.inlineEditor.isActive()) return;
+    this.currentState.onDoubleClick(event);
+  }
+  
+  private handleContextMenu(event: MouseEvent): void {
+    event.preventDefault();
+    // Context menu implementation in UI phase
+  }
+  
+  private handleKeyDown(event: KeyboardEvent): void {
+    if (this.inlineEditor.isActive()) return;
+    
+    // Global shortcuts
+    if ((event.ctrlKey || event.metaKey) && event.key === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) {
+        this.eventBus.emit('RENDER_REQUESTED', undefined);
+        // Redo command
+      } else {
+        this.eventBus.emit('RENDER_REQUESTED', undefined);
+        // Undo command
+      }
+    }
+    
+    this.currentState.onKeyDown(event);
+  }
+  
+  setState(newState: InteractionState): void {
+    this.currentState.exit();
+    this.currentState = newState;
+    this.currentState.enter();
+  }
+  
+  getMousePosition(event: MouseEvent): Position {
+    const transform = this.store.getTransform();
+    const rect = this.svg.node()!.getBoundingClientRect();
+    
+    const screenX = event.clientX - rect.left;
+    const screenY = event.clientY - rect.top;
+    
+    return CoordinateTransform.screenToGraph(screenX, screenY, transform);
+  }
+  
+  setZoomEnabled(enabled: boolean): void {
+    if (enabled) {
+      this.svg.call(this.zoom);
+    } else {
+      this.svg.on('.zoom', null);
+    }
+  }
+  
+  startNodeLabelEdit(nodeId: NodeId, event: MouseEvent): void {
+    const node = this.store.getNode(nodeId);
+    if (!node) return;
+    
+    const rect = this.svg.node()!.getBoundingClientRect();
+    const transform = this.store.getTransform();
+    
+    // Calculate screen position of label
+    const labelPos = CoordinateTransform.graphToScreen(
+      node.position.x + node.width / 2,
+      node.position.y + node.height / 2,
+      transform
+    );
+    
+    this.inlineEditor.show({
+      initialValue: node.label,
+      position: {
+        x: rect.left + labelPos.x - 100, // Center the input
+        y: rect.top + labelPos.y - 15
+      },
+      fontSize: node.style.fontSize || Config.DEFAULT_FONT_SIZE,
+      fontFamily: Config.DEFAULT_FONT_FAMILY,
+      onCommit: (value) => {
+        this.store.updateNode(nodeId, { label: value });
+      },
+      onCancel: () => {
+        // Do nothing
+      }
+    });
+  }
+}
+```
+
+### Testing Requirements
+
+Create integration tests for:
+1. State transitions
+2. Node dragging with grid snap
+3. Connection creation flow
+4. Selection handling
+5. Inline editing
+
+### Acceptance Criteria
+
+- [ ] State machine transitions correctly
+- [ ] Node dragging is smooth
+- [ ] Grid snapping works on mouse up
+- [ ] Connection creation validates targets
+- [ ] Inline editing commits/cancels correctly
+- [ ] Zoom is disabled during interactions
+```
+
+---
+
+## Phase 6 Summary
+
+**Completed Deliverables:**
+- ✅ Inline text editor
+- ✅ Input system state machine
+- ✅ Node dragging with snapping
+- ✅ Connection creation flow
+- ✅ Selection handling
+
+**Testing Checklist:**
+- [ ] All interaction states work correctly
+- [ ] State transitions are clean
+- [ ] No orphaned state after interactions
+- [ ] Inline editor integrates smoothly
+
+**Next Phase:** Phase 7 - History Management
+
+---
+
+# PHASE 7: History Management
+
+## Overview
+
+Implement undo/redo functionality using delta patching for efficient memory usage.
+
+## Objectives
+
+- Build delta-based history system
+- Implement undo/redo operations
+- Integrate with state store
+- Optimize memory usage
+
+## Deliverables
+```
+src/
+└── services/
+    └── HistoryManager.ts    # Undo/redo with delta patching
+
+Step 7.1: History Manager
+Prompt for AI Agent:
+markdown# Task: Implement History Manager with Delta Patching
+
+Create the history management system that tracks state changes using forward/backward deltas.
+
+## Requirements
+
+### File: src/services/HistoryManager.ts
+```typescript
+import { EventBus } from '../core/EventBus';
+import { SerializedState, NodeData, ConnectionData, Transform } from '../core/types';
+import { deepClone } from '../utils/DeepClone';
+
+interface StateDelta {
+  nodes: Record;
+  connections: Record;
+  viewport?: { old?: Transform; new?: Transform };
+}
+
+export class HistoryManager {
+  private undoStack: StateDelta[];
+  private redoStack: StateDelta[];
+  private headState: SerializedState | null;
+  private maxDepth: number;
+  private eventBus: EventBus;
+  
+  constructor(
+    maxDepth: number,
+    private serialize: () => SerializedState,
+    private deserialize: (data: SerializedState) => void,
+    eventBus: EventBus
+  ) {
+    this.maxDepth = maxDepth;
+    this.undoStack = [];
+    this.redoStack = [];
+    this.headState = null;
+    this.eventBus = eventBus;
+  }
+  
+  save(): void {
+    const newState = this.serialize();
+    
+    if (!this.headState) {
+      this.headState = deepClone(newState);
+      this.emitHistoryStatus();
+      return;
+    }
+    
+    const delta = this.diff(this.headState, newState);
+    
+    // Ignore if no changes
+    if (this.isEmptyPatch(delta)) {
+      return;
+    }
+    
+    this.undoStack.push(delta);
+    
+    // Limit stack depth
+    if (this.undoStack.length > this.maxDepth) {
+      this.undoStack.shift();
+    }
+    
+    // Clear redo stack on new mutation
+    this.redoStack = [];
+    
+    this.headState = deepClone(newState);
+    this.emitHistoryStatus();
+  }
+  
+  undo(): boolean {
+    if (!this.canUndo()) return false;
+    
+    const delta = this.undoStack.pop()!;
+    
+    // Apply inverse patch
+    const prevState = this.applyInversePatch(this.headState!, delta);
+    
+    // Save forward patch to redo stack
+    this.redoStack.push(delta);
+    
+    // Apply state
+    this.deserialize(prevState);
+    this.headState = prevState;
+    
+    this.emitHistoryStatus();
+    return true;
+  }
+  
+  redo(): boolean {
+    if (!this.canRedo()) return false;
+    
+    const delta = this.redoStack.pop()!;
+    
+    // Apply forward patch
+    const nextState = this.applyPatch(this.headState!, delta);
+    
+    // Move to undo stack
+    this.undoStack.push(delta);
+    
+    // Apply state
+    this.deserialize(nextState);
+    this.headState = nextState;
+    
+    this.emitHistoryStatus();
+    return true;
+  }
+  
+  canUndo(): boolean {
+    return this.undoStack.length > 0;
+  }
+  
+  canRedo(): boolean {
+    return this.redoStack.length > 0;
+  }
+  
+  reset(): void {
+    this.undoStack = [];
+    this.redoStack = [];
+    this.headState = null;
+    this.emitHistoryStatus();
+  }
+  
+  private diff(oldState: SerializedState, newState: SerializedState): StateDelta {
+    const delta: StateDelta = {
+      nodes: {},
+      connections: {}
+    };
+    
+    // Diff nodes
+    const allNodeIds = new Set([
+      ...Object.keys(oldState.nodes),
+      ...Object.keys(newState.nodes)
+    ]);
+    
+    allNodeIds.forEach(id => {
+      const oldNode = oldState.nodes[id];
+      const newNode = newState.nodes[id];
+      
+      if (!oldNode && newNode) {
+        // Node added
+        delta.nodes[id] = { new: newNode as any };
+      } else if (oldNode && !newNode) {
+        // Node removed
+        delta.nodes[id] = { old: oldNode as any };
+      } else if (oldNode && newNode) {
+        // Node potentially modified
+        if (JSON.stringify(oldNode) !== JSON.stringify(newNode)) {
+          delta.nodes[id] = { old: oldNode as any, new: newNode as any };
+        }
+      }
+    });
+    
+    // Diff connections
+    const allConnIds = new Set([
+      ...Object.keys(oldState.connections),
+      ...Object.keys(newState.connections)
+    ]);
+    
+    allConnIds.forEach(id => {
+      const oldConn = oldState.connections[id];
+      const newConn = newState.connections[id];
+      
+      if (!oldConn && newConn) {
+        delta.connections[id] = { new: newConn as any };
+      } else if (oldConn && !newConn) {
+        delta.connections[id] = { old: oldConn as any };
+      } else if (oldConn && newConn) {
+        if (JSON.stringify(oldConn) !== JSON.stringify(newConn)) {
+          delta.connections[id] = { old: oldConn as any, new: newConn as any };
+        }
+      }
+    });
+    
+    // Diff viewport
+    if (JSON.stringify(oldState.metadata.viewport) !== JSON.stringify(newState.metadata.viewport)) {
+      delta.viewport = {
+        old: oldState.metadata.viewport,
+        new: newState.metadata.viewport
+      };
+    }
+    
+    return delta;
+  }
+  
+  private applyPatch(state: SerializedState, delta: StateDelta): SerializedState {
+    const newState = deepClone(state);
+    
+    // Apply node changes
+    Object.entries(delta.nodes).forEach(([id, change]) => {
+      if (change.new) {
+        newState.nodes[id] = change.new as any;
+      } else if (change.old && !change.new) {
+        delete newState.nodes[id];
+      }
+    });
+    
+    // Apply connection changes
+    Object.entries(delta.connections).forEach(([id, change]) => {
+      if (change.new) {
+        newState.connections[id] = change.new as any;
+      } else if (change.old && !change.new) {
+        delete newState.connections[id];
+      }
+    });
+    
+    // Apply viewport change
+    if (delta.viewport?.new) {
+      newState.metadata.viewport = delta.viewport.new;
+    }
+    
+    return newState;
+  }
+  
+  private applyInversePatch(state: SerializedState, delta: StateDelta): SerializedState {
+    const newState = deepClone(state);
+    
+    // Apply inverse node changes
+    Object.entries(delta.nodes).forEach(([id, change]) => {
+      if (change.old) {
+        newState.nodes[id] = change.old as any;
+      } else if (!change.old && change.new) {
+        delete newState.nodes[id];
+      }
+    });
+    
+    // Apply inverse connection changes
+    Object.entries(delta.connections).forEach(([id, change]) => {
+      if (change.old) {
+        newState.connections[id] = change.old as any;
+      } else if (!change.old && change.new) {
+        delete newState.connections[id];
+      }
+    });
+    
+    // Apply inverse viewport change
+    if (delta.viewport?.old) {
+      newState.metadata.viewport = delta.viewport.old;
+    }
+    
+    return newState;
+  }
+  
+  private isEmptyPatch(delta: StateDelta): boolean {
+    return (
+      Object.keys(delta.nodes).length === 0 &&
+      Object.keys(delta.connections).length === 0 &&
+      !delta.viewport
+    );
+  }
+  
+  private emitHistoryStatus(): void {
+    this.eventBus.emit('HISTORY_CHANGED', {
+      canUndo: this.canUndo(),
+      canRedo: this.canRedo()
+    });
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. State diff calculation
+2. Forward patch application
+3. Inverse patch application
+4. Empty patch detection
+5. Stack depth limiting
+6. Redo stack clearing on new mutation
+
+### Acceptance Criteria
+
+- [ ] Undo/redo work correctly
+- [ ] Deltas are calculated efficiently
+- [ ] Memory usage is optimized
+- [ ] Stack limits are enforced
+- [ ] History status events are emitted
+
+Phase 7 Summary
+Completed Deliverables:
+
+✅ Delta-based history manager
+✅ Undo/redo operations
+✅ Stack depth management
+✅ Event integration
+
+Testing Checklist:
+
+ Undo reverts state correctly
+ Redo reapplies state correctly
+ Deltas are minimal
+ Stack limits prevent memory leaks
+
+Next Phase: Phase 8 - Serialization Service
+
+PHASE 8: Serialization Service
+Overview
+Implement serialization and deserialization for importing/exporting graph state with handler ID preservation.
+Objectives
+
+Build serialization to JSON format
+Implement deserialization with validation
+Preserve handler IDs correctly
+Handle missing plugins gracefully
+
+Deliverables
+src/
+└── services/
+    └── SerializationService.ts    # Import/export graph state
+
+Step 8.1: Serialization Service
+Prompt for AI Agent:
+markdown# Task: Implement Serialization Service
+
+Create the service that converts between runtime graph state and JSON format with proper handler ID preservation.
+
+## Requirements
+
+### File: src/services/SerializationService.ts
+```typescript
+import { Registry } from '../core/Registry';
+import { Store } from '../core/State';
+import { 
+  SerializedState, 
+  SerializedNode, 
+  SerializedHandler,
+  SerializedConnection,
+  GraphState,
+  NodeId,
+  ConnectionId,
+  HandlerId,
+  createNodeId,
+  createConnectionId,
+  createHandlerId
+} from '../core/types';
+import { Node } from '../domain/models/Node';
+import { Connection } from '../domain/models/Connection';
+import { Handler } from '../domain/models/Handler';
+
+export class SerializationService {
+  constructor(
+    private registry: Registry,
+    private store: Store
+  ) {}
+  
+  serialize(): SerializedState {
+    const state = this.store.getState();
+    
+    return {
+      metadata: {
+        version: '1.0.0',
+        createdAt: new Date().toISOString(),
+        viewport: state.transform
+      },
+      nodes: this.serializeNodes(state.nodes),
+      connections: this.serializeConnections(state.links),
+      notes: this.serializeNotes(state.notes)
+    };
+  }
+  
+  deserialize(data: SerializedState): GraphState {
+    // Validate version compatibility
+    if (!this.isCompatibleVersion(data.metadata.version)) {
+      console.warn(`State version ${data.metadata.version} may not be compatible`);
+    }
+    
+    // Deserialize in order: nodes first (to create handlers), then connections
+    const nodes = this.deserializeNodes(data.nodes);
+    const links = this.deserializeConnections(data.connections, nodes);
+    const notes = this.deserializeNotes(data.notes || {});
+    
+    return {
+      nodes,
+      links,
+      notes,
+      transform: data.metadata.viewport || { k: 1, x: 0, y: 0 }
+    };
+  }
+  
+  private serializeNodes(nodes: ReadonlyArray): Record {
+    const result: Record = {};
+    
+    nodes.forEach(node => {
+      result[node.id] = {
+        id: node.id,
+        type: node.type,
+        label: node.label,
+        note: node.note,
+        data: { ...node.data },
+        presentation: {
+          position: { ...node.position },
+          style: { ...node.style }
+        },
+        handles: this.serializeHandlers(node.handlers)
+      };
+    });
+    
+    return result;
+  }
+  
+  private serializeHandlers(handlers: ReadonlyArray): Record {
+    const result: Record = {};
+    
+    handlers.forEach(handler => {
+      result[handler.id] = {
+        id: handler.id,
+        type: handler.type,
+        label: handler.label,
+        flow: handler.flow,
+        presentation: {
+          offset: { ...handler.offset },
+          direction: handler.direction
+        }
+      };
+    });
+    
+    return result;
+  }
+  
+  private serializeConnections(connections: ReadonlyArray): Record {
+    const result: Record = {};
+    
+    connections.forEach(conn => {
+      result[conn.id] = {
+        id: conn.id,
+        type: conn.type,
+        sourceHandlerId: conn.sourceHandlerId,
+        targetHandlerId: conn.targetHandlerId,
+        pathType: conn.pathType,
+        label: conn.label ? { ...conn.label } : undefined,
+        style: { ...conn.style },
+        data: { ...conn.data }
+      };
+    });
+    
+    return result;
+  }
+  
+  private serializeNotes(notes: ReadonlyArray): Record {
+    const result: Record = {};
+    
+    notes.forEach(note => {
+      result[note.id] = {
+        id: note.id,
+        text: note.text,
+        position: { ...note.position },
+        dimensions: { ...note.dimensions }
+      };
+    });
+    
+    return result;
+  }
+  
+  private deserializeNodes(nodesData: Record): Node[] {
+    const instances: Node[] = [];
+    
+    Object.values(nodesData).forEach(nodeData => {
+      const definition = this.registry.getNodeDefinition(nodeData.type);
+      
+      if (!definition) {
+        console.warn(`Node type "${nodeData.type}" not registered. Skipping node ${nodeData.id}.`);
+        return;
+      }
+      
+      // Create node instance
+      const node = new Node(
+        createNodeId(nodeData.id),
+        nodeData.type,
+        definition,
+        nodeData.presentation.position,
+        nodeData.label,
+        nodeData.data
+      );
+      
+      // Restore additional properties
+      node.note = nodeData.note;
+      node.style = { ...nodeData.presentation.style };
+      
+      // Restore handler IDs from serialized data
+      this.restoreHandlerIds(node, nodeData.handles);
+      
+      instances.push(node);
+    });
+    
+    return instances;
+  }
+  
+  private restoreHandlerIds(node: Node, savedHandlers: Record): void {
+    // Match handlers by type and index (FIFO order)
+    const savedHandlersList = Object.values(savedHandlers);
+    
+    node.handlers.forEach((handler, index) => {
+      // Find matching saved handler by type
+      const matchingHandlers = savedHandlersList.filter(h => h.type === handler.type);
+      
+      if (matchingHandlers[index]) {
+        // Restore the original handler ID
+        (handler as any).id = createHandlerId(matchingHandlers[index].id);
+        
+        // Restore label if it was customized
+        if (matchingHandlers[index].label) {
+          handler.label = matchingHandlers[index].label;
+        }
+      }
+    });
+  }
+  
+  private deserializeConnections(
+    connectionsData: Record,
+    nodes: Node[]
+  ): Connection[] {
+    const instances: Connection[] = [];
+    
+    Object.values(connectionsData).forEach(connData => {
+      const definition = this.registry.getConnectionDefinition(connData.type);
+      
+      if (!definition) {
+        console.warn(`Connection type "${connData.type}" not registered. Skipping connection ${connData.id}.`);
+        return;
+      }
+      
+      // Validate handler existence
+      const sourceExists = this.handlerExists(connData.sourceHandlerId, nodes);
+      const targetExists = this.handlerExists(connData.targetHandlerId, nodes);
+      
+      if (!sourceExists || !targetExists) {
+        console.warn(`Orphaned connection ${connData.id}: handler not found. Skipping.`);
+        return;
+      }
+      
+      // Create connection instance
+      const connection = new Connection(
+        createConnectionId(connData.id),
+        connData.type,
+        definition,
+        createHandlerId(connData.sourceHandlerId),
+        createHandlerId(connData.targetHandlerId),
+        connData.pathType
+      );
+      
+      // Restore additional properties
+      connection.style = { ...connData.style };
+      connection.label = connData.label ? { ...connData.label } : undefined;
+      connection.data = { ...connData.data };
+      
+      instances.push(connection);
+    });
+    
+    return instances;
+  }
+  
+  private deserializeNotes(notesData: Record): any[] {
+    // Note deserialization will be implemented with Note class
+    return [];
+  }
+  
+  private handlerExists(handlerId: string, nodes: Node[]): boolean {
+    return nodes.some(node => 
+      node.handlers.some(h => h.id === handlerId)
+    );
+  }
+  
+  private isCompatibleVersion(version: string): boolean {
+    const [major] = version.split('.');
+    return major === '1';
+  }
+  
+  exportToJSON(): string {
+    const state = this.serialize();
+    return JSON.stringify(state, null, 2);
+  }
+  
+  importFromJSON(json: string): GraphState {
+    try {
+      const data = JSON.parse(json) as SerializedState;
+      return this.deserialize(data);
+    } catch (error) {
+      throw new Error(`Failed to parse JSON: ${error.message}`);
+    }
+  }
+  
+  downloadAsFile(filename: string = 'diagram.json'): void {
+    const json = this.exportToJSON();
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    
+    URL.revokeObjectURL(url);
+  }
+  
+  async loadFromFile(file: File): Promise {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      
+      reader.onload = (e) => {
+        try {
+          const json = e.target?.result as string;
+          const state = this.importFromJSON(json);
+          resolve(state);
+        } catch (error) {
+          reject(error);
+        }
+      };
+      
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsText(file);
+    });
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Complete serialization/deserialization round-trip
+2. Handler ID preservation
+3. Missing plugin handling
+4. Orphaned connection detection
+5. Version compatibility checking
+6. JSON export/import
+
+### Acceptance Criteria
+
+- [ ] Round-trip preserves all data
+- [ ] Handler IDs are correctly restored
+- [ ] Missing plugins don't crash deserialization
+- [ ] Orphaned connections are detected and skipped
+- [ ] File export/import works correctly
+```
+
+---
+
+## Phase 8 Summary
+
+**Completed Deliverables:**
+- ✅ Serialization service
+- ✅ Handler ID preservation
+- ✅ Missing plugin handling
+- ✅ File import/export utilities
+
+**Testing Checklist:**
+- [ ] Round-trip serialization works
+- [ ] Handler IDs are preserved
+- [ ] Missing plugins handled gracefully
+- [ ] File operations work correctly
+
+**Next Phase:** Phase 9 - Command-Query API
+
+---
+
+# PHASE 9: Command-Query API
+
+## Overview
+
+Implement the public API facade that provides strict command-query separation for external consumers.
+
+## Objectives
+
+- Build command interface for mutations
+- Build query interface for data access
+- Create validation layer
+- Integrate all services
+
+## Deliverables
+```
+src/
+└── core/
+    └── API.ts    # Public API facade with CQS
+
+Step 9.1: API Implementation
+Prompt for AI Agent:
+markdown# Task: Implement Command-Query API Facade
+
+Create the public API that provides strict CQS separation and integrates all system services.
+
+## Requirements
+
+### File: src/core/API.ts
+```typescript
+import { EventBus } from './EventBus';
+import { Store } from './State';
+import { Registry } from './Registry';
+import { SelectionManager } from './SelectionManager';
+import { HistoryManager } from '../services/HistoryManager';
+import { SerializationService } from '../services/SerializationService';
+import { 
+  WidgetAPI,
+  WidgetCommands,
+  WidgetQueries,
+  CreateNodePayload,
+  UpdateNodePayload,
+  SpawnConnectedPayload,
+  UpdateLinkPayload,
+  TraversePayload,
+  NodeMetadata,
+  NodeData,
+  ConnectionData,
+  SerializedState,
+  NodeId,
+  ConnectionId,
+  HandlerId,
+  createNodeId,
+  createConnectionId,
+  createHandlerId
+} from './types';
+import { Node } from '../domain/models/Node';
+import { Connection } from '../domain/models/Connection';
+
+export class DiagramAPI implements WidgetAPI {
+  readonly commands: WidgetCommands;
+  readonly queries: WidgetQueries;
+  
+  constructor(
+    private eventBus: EventBus,
+    private store: Store,
+    private registry: Registry,
+    private selectionManager: SelectionManager,
+    private historyManager: HistoryManager,
+    private serializationService: SerializationService
+  ) {
+    this.commands = this.createCommandsAPI();
+    this.queries = this.createQueriesAPI();
+  }
+  
+  private createCommandsAPI(): WidgetCommands {
+    return {
+      loadPlugins: (url?: string) => {
+        // Will be implemented in plugin loader phase
+        console.log('loadPlugins', url);
+      },
+      
+      createNode: (payload: CreateNodePayload) => {
+        const definition = this.registry.getNodeDefinition(payload.type);
+        if (!definition) {
+          throw new Error(`Node type "${payload.type}" not registered`);
+        }
+        
+        const nodeId = createNodeId(`node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+        
+        const node = new Node(
+          nodeId,
+          payload.type,
+          definition,
+          { x: payload.x, y: payload.y },
+          payload.label || '',
+          payload.data || {}
+        );
+        
+        this.store.addNode(node);
+        this.historyManager.save();
+      },
+      
+      deleteNode: (id: NodeId) => {
+        this.store.removeNode(id);
+        this.historyManager.save();
+      },
+      
+      updateNode: (payload: UpdateNodePayload) => {
+        this.store.updateNode(payload.id, payload);
+        this.historyManager.save();
+      },
+      
+      spawnNodeConnected: (payload: SpawnConnectedPayload) => {
+        const definition = this.registry.getNodeDefinition(payload.type);
+        if (!definition) {
+          throw new Error(`Node type "${payload.type}" not registered`);
+        }
+        
+        const nodeId = createNodeId(`node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+        
+        const node = new Node(
+          nodeId,
+          payload.type,
+          definition,
+          { x: payload.x, y: payload.y },
+          '',
+          {}
+        );
+        
+        this.store.addNode(node);
+        
+        // Find first input handler on new node
+        const targetHandler = node.handlers.find(h => 
+          h.flow === 'in' || h.flow === 'any'
+        );
+        
+        if (targetHandler) {
+          const connDef = this.registry.getConnectionDefinition('default') || 
+                         this.registry.getAllConnectionDefinitions()[0];
+          
+          if (connDef) {
+            const connId = createConnectionId(`conn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+            
+            const connection = new Connection(
+              connId,
+              'default',
+              connDef,
+              createHandlerId(payload.sourceHandlerId),
+              targetHandler.id
+            );
+            
+            this.store.addLink(connection);
+          }
+        }
+        
+        this.historyManager.save();
+      },
+      
+      createLink: (sourceHandlerId: HandlerId, targetHandlerId: HandlerId) => {
+        // Validate handlers exist
+        const sourcePos = this.store.getHandlerAbsolutePosition(sourceHandlerId);
+        const targetPos = this.store.getHandlerAbsolutePosition(targetHandlerId);
+        
+        if (!sourcePos || !targetPos) {
+          throw new Error('Handler not found');
+        }
+        
+        // Validate connection rules
+        // TODO: Implement connection validator
+        
+        const connDef = this.registry.getConnectionDefinition('default') || 
+                       this.registry.getAllConnectionDefinitions()[0];
+        
+        if (!connDef) {
+          throw new Error('No connection type available');
+        }
+        
+        const connId = createConnectionId(`conn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
+        
+        const connection = new Connection(
+          connId,
+          'default',
+          connDef,
+          sourceHandlerId,
+          targetHandlerId
+        );
+        
+        this.store.addLink(connection);
+        this.historyManager.save();
+      },
+      
+      deleteLink: (id: ConnectionId) => {
+        this.store.removeLink(id);
+        this.historyManager.save();
+      },
+      
+      updateLink: (payload: UpdateLinkPayload) => {
+        this.store.updateLink(payload.id, payload);
+        this.historyManager.save();
+      },
+      
+      createNote: (x: number, y: number) => {
+        // Will be implemented with Note class
+        console.log('createNote', x, y);
+      },
+      
+      deleteNote: (id) => {
+        this.store.removeNote(id);
+        this.historyManager.save();
+      },
+      
+      undo: () => {
+        this.historyManager.undo();
+      },
+      
+      redo: () => {
+        this.historyManager.redo();
+      },
+      
+      zoomIn: () => {
+        const transform = this.store.getTransform();
+        const newScale = Math.min(3.0, transform.k + 0.1);
+        this.store.setTransform({ ...transform, k: newScale });
+      },
+      
+      zoomOut: () => {
+        const transform = this.store.getTransform();
+        const newScale = Math.max(0.1, transform.k - 0.1);
+        this.store.setTransform({ ...transform, k: newScale });
+      },
+      
+      zoomReset: () => {
+        this.store.setTransform({ k: 1, x: 0, y: 0 });
+      },
+      
+      zoomFit: () => {
+        // Calculate bounds and fit
+        // TODO: Implement bounds calculation
+        console.log('zoomFit');
+      },
+      
+      selectObject: (type: 'node' | 'link', id: string) => {
+        if (type === 'node') {
+          this.selectionManager.selectNode(createNodeId(id));
+        } else {
+          this.selectionManager.selectLink(createConnectionId(id));
+        }
+      },
+      
+      deselectAll: () => {
+        this.selectionManager.clearSelection();
+      },
+      
+      importState: (data: SerializedState) => {
+        const state = this.serializationService.deserialize(data);
+        this.store.setState(state);
+        this.historyManager.reset();
+        this.historyManager.save();
+      },
+      
+      traverseDiagram: async (payload: TraversePayload) => {
+        const strategy = this.registry.getStrategy(payload.strategy);
+        if (!strategy) {
+          this.eventBus.emit('TRAVERSE_ERROR', {
+            message: `Strategy "${payload.strategy}" not found`
+          });
+          return;
+        }
+        
+        try {
+          const nodes = this.store.getAllNodes();
+          const links = this.store.getAllLinks();
+          
+          // Sort nodes according to strategy
+          const sortedNodes = strategy.sortNodes([...nodes], [...links]);
+          
+          // Get visitors
+          const visitors = strategy.getVisitors();
+          
+          // Initialize aggregator
+          let aggregator = strategy.getInitialAggregator();
+          
+          // Traverse
+          for (const node of sortedNodes) {
+            const visitor = visitors[node.type];
+            if (visitor) {
+              visitor(node, aggregator, { nodes, links });
+            }
+          }
+          
+          this.eventBus.emit('TRAVERSE_COMPLETED', {
+            strategy: payload.strategy,
+            result: aggregator
+          });
+        } catch (error) {
+          this.eventBus.emit('TRAVERSE_ERROR', {
+            message: error.message
+          });
+        }
+      }
+    };
+  }
+  
+  private createQueriesAPI(): WidgetQueries {
+    return {
+      getNode: (id: NodeId): Readonly | null => {
+        const node = this.store.getNode(id);
+        return node ? node.getData() : null;
+      },
+      
+      getAllNodesDefinition: (): ReadonlyArray => {
+        return this.registry.getAllNodeDefinitions().map(def => {
+          const ctor = def.constructor as any;
+          return {
+            type: ctor.type,
+            role: ctor.role
+          };
+        });
+      },
+      
+      getNodeIconPathData: (type: string): string => {
+        const def = this.registry.getNodeDefinition(type);
+        return def ? def.getIconPath() : '';
+      },
+      
+      getLink: (id: ConnectionId): Readonly | null => {
+        const link = this.store.getLink(id);
+        return link ? link.getData() : null;
+      },
+      
+      getGraphData: (): Readonly => {
+        return this.serializationService.serialize();
+      }
+    };
+  }
+}
+```
+
+### Testing Requirements
+
+Create integration tests for:
+1. All command operations
+2. All query operations
+3. Command validation
+4. History integration
+5. Event emission
+
+### Acceptance Criteria
+
+- [ ] Commands mutate state correctly
+- [ ] Queries return immutable data
+- [ ] Validation prevents invalid operations
+- [ ] History snapshots on mutations
+- [ ] Events are emitted correctly
+```
+
+---
+
+## Phase 9 Summary
+
+**Completed Deliverables:**
+- ✅ Command API for mutations
+- ✅ Query API for data access
+- ✅ Validation layer
+- ✅ Service integration
+
+**Testing Checklist:**
+- [ ] All commands work correctly
+- [ ] All queries return correct data
+- [ ] CQS is strictly enforced
+- [ ] History integrates seamlessly
+
+**Next Phase:** Phase 10 - UI Components
+
+---
+
+# PHASE 10: UI Components
+
+## Overview
+
+Build the user interface components including properties panel, zoom controls, and node palette.
+
+## Objectives
+
+- Create properties panel for editing
+- Build zoom control widget
+- Implement node palette
+- Add context menus
+
+## Deliverables
+```
+src/
+└── components/
+    ├── PropertiesPanel.ts    # Property editing
+    ├── ZoomControls.ts       # Zoom widget
+    ├── NodePalette.ts        # Node type selector
+    └── ContextMenu.ts        # Right-click menus
+
+Step 10.1: Zoom Controls
+Prompt for AI Agent:
+markdown# Task: Implement Zoom Controls Widget
+
+Create a UI widget for zoom and undo/redo controls.
+
+## Requirements
+
+### File: src/components/ZoomControls.ts
+```typescript
+import { EventBus } from '../core/EventBus';
+import { DiagramAPI } from '../core/API';
+
+export class ZoomControls {
+  private container: HTMLElement;
+  private api: DiagramAPI;
+  private eventBus: EventBus;
+  private canUndo: boolean = false;
+  private canRedo: boolean = false;
+  
+  constructor(container: HTMLElement, api: DiagramAPI, eventBus: EventBus) {
+    this.container = container;
+    this.api = api;
+    this.eventBus = eventBus;
+    
+    this.render();
+    this.subscribeToEvents();
+  }
+  
+  private render(): void {
+    this.container.innerHTML = `
+      
+        
+          
+            
+          
+        
+        
+        
+          
+            
+          
+        
+        
+        
+        
+        
+          
+            
+            
+          
+        
+        
+        
+          
+            
+            
+          
+        
+        
+        
+          
+            
+            
+            1:1
+          
+        
+        
+        
+          
+            
+            
+          
+        
+      
+    `;
+    
+    this.attachEventListeners();
+  }
+  
+  private attachEventListeners(): void {
+    this.container.querySelector('#btn-undo')!.addEventListener('click', () => {
+      this.api.commands.undo();
+    });
+    
+    this.container.querySelector('#btn-redo')!.addEventListener('click', () => {
+      this.api.commands.redo();
+    });
+    
+    this.container.querySelector('#btn-zoom-in')!.addEventListener('click', () => {
+      this.api.commands.zoomIn();
+    });
+    
+    this.container.querySelector('#btn-zoom-out')!.addEventListener('click', () => {
+      this.api.commands.zoomOut();
+    });
+    
+    this.container.querySelector('#btn-zoom-reset')!.addEventListener('click', () => {
+      this.api.commands.zoomReset();
+    });
+    
+    this.container.querySelector('#btn-zoom-fit')!.addEventListener('click', () => {
+      this.api.commands.zoomFit();
+    });
+  }
+  
+  private subscribeToEvents(): void {
+    this.eventBus.on('HISTORY_CHANGED', (status) => {
+      this.canUndo = status.canUndo;
+      this.canRedo = status.canRedo;
+      this.updateButtonStates();
+    });
+  }
+  
+  private updateButtonStates(): void {
+    const undoBtn = this.container.querySelector('#btn-undo') as HTMLButtonElement;
+    const redoBtn = this.container.querySelector('#btn-redo') as HTMLButtonElement;
+    
+    undoBtn.disabled = !this.canUndo;
+    redoBtn.disabled = !this.canRedo;
+  }
+}
+```
+
+### CSS Styles
+```css
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.zoom-controls button {
+  padding: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #333;
+}
+
+.zoom-controls button:hover:not(:disabled) {
+  background: #f0f0f0;
+}
+
+.zoom-controls button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.zoom-controls .divider {
+  width: 1px;
+  background: #e0e0e0;
+  margin: 4px 0;
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Button click handlers
+2. History status updates
+3. Button enable/disable states
+
+### Acceptance Criteria
+
+- [ ] All zoom controls work correctly
+- [ ] Undo/redo buttons update state
+- [ ] UI is responsive and accessible
+
+Step 10.2: Node Palette
+Prompt for AI Agent:
+markdown# Task: Implement Node Palette
+
+Create a palette showing available node types grouped by role.
+
+## Requirements
+
+### File: src/components/NodePalette.ts
+```typescript
+import { Registry } from '../core/Registry';
+import { DiagramAPI } from '../core/API';
+import { NodeRole } from '../core/types';
+
+export class NodePalette {
+  private container: HTMLElement;
+  private registry: Registry;
+  private api: DiagramAPI;
+  
+  constructor(container: HTMLElement, registry: Registry, api: DiagramAPI) {
+    this.container = container;
+    this.registry = registry;
+    this.api = api;
+    
+    this.render();
+  }
+  
+  refresh(): void {
+    this.render();
+  }
+  
+  private render(): void {
+    const roleGroups = this.groupNodesByRole();
+    
+    let html = '<div class="node-palette">';
+    
+    Object.entries(roleGroups).forEach(([role, definitions]) => {
+      if (definitions.length === 0) return;
+      
+      html += `<div class="palette-group">`;
+      html += `<div class="palette-group-title"Continue09:17
+${role}</div>;       html += <div class="palette-nodes">`;
+
+  definitions.forEach(def => {
+    const ctor = def.constructor as any;
+    const type = ctor.type;
+    const iconPath = def.getIconPath();
+    
+    html += `
+      <div class="palette-node" data-node-type="${type}" draggable="true">
+        <svg width="24" height="24" viewBox="0 0 24 24">
+          <path d="${iconPath}" fill="currentColor"/>
+        </svg>
+        <span>${this.formatTypeName(type)}</span>
+      </div>
+    `;
+  });
+  
+  html += `</div></div>`;
+});
+
+html += '</div>';
+this.container.innerHTML = html;
+
+this.attachEventListeners();
+}
+private groupNodesByRole(): Record<string, any[]> {
+const groups: Record<string, any[]> = {};
+Object.values(NodeRole).forEach(role => {
+  groups[role] = this.registry.getNodesByRole(role);
+});
+
+return groups;
+}
+private formatTypeName(type: string): string {
+return type
+.replace(/_/g, ' ')
+.replace(/\b\w/g, c => c.toUpperCase());
+}
+private attachEventListeners(): void {
+this.container.querySelectorAll('.palette-node').forEach(el => {
+el.addEventListener('dragstart', (e) => {
+const type = (e.target as HTMLElement).closest('.palette-node')!.getAttribute('data-node-type')!;
+(e as DragEvent).dataTransfer!.setData('application/node-type', type);
+});
+  el.addEventListener('click', (e) => {
+    const type = (e.target as HTMLElement).closest('.palette-node')!.getAttribute('data-node-type')!;
+    // Create node at center of viewport
+    this.api.commands.createNode({
+      type,
+      x: 400,
+      y: 300
+    });
+  });
+});
+}
+}
+
+### CSS Styles
+```css
+.node-palette {
+  width: 250px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  overflow-y: auto;
+  max-height: 600px;
+}
+
+.palette-group {
+  margin-bottom: 16px;
+}
+
+.palette-group-title {
+  font-weight: 600;
+  padding: 12px 16px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: #666;
+}
+
+.palette-nodes {
+  padding: 8px;
+}
+
+.palette-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+  user-select: none;
+}
+
+.palette-node:hover {
+  background: #f0f0f0;
+}
+
+.palette-node svg {
+  flex-shrink: 0;
+  color: #666;
+}
+
+.palette-node span {
+  font-size: 14px;
+  color: #333;
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Palette rendering
+2. Node grouping by role
+3. Click to create nodes
+4. Drag and drop data transfer
+
+### Acceptance Criteria
+
+- [ ] Nodes grouped by role correctly
+- [ ] Click creates node
+- [ ] Drag provides node type data
+- [ ] UI updates when plugins load
+
+Step 10.3: Properties Panel
+Prompt for AI Agent:
+markdown# Task: Implement Properties Panel
+
+Create a panel for editing properties of selected nodes and links.
+
+## Requirements
+
+### File: src/components/PropertiesPanel.ts
+```typescript
+import { EventBus } from '../core/EventBus';
+import { SelectionManager } from '../core/SelectionManager';
+import { DiagramAPI } from '../core/API';
+import { Registry } from '../core/Registry';
+import { PropertySchema, NodeData, ConnectionData } from '../core/types';
+
+export class PropertiesPanel {
+  private container: HTMLElement;
+  private eventBus: EventBus;
+  private selectionManager: SelectionManager;
+  private api: DiagramAPI;
+  private registry: Registry;
+  
+  constructor(
+    container: HTMLElement,
+    eventBus: EventBus,
+    selectionManager: SelectionManager,
+    api: DiagramAPI,
+    registry: Registry
+  ) {
+    this.container = container;
+    this.eventBus = eventBus;
+    this.selectionManager = selectionManager;
+    this.api = api;
+    this.registry = registry;
+    
+    this.subscribeToEvents();
+    this.render();
+  }
+  
+  private subscribeToEvents(): void {
+    this.eventBus.on('SELECTION_CHANGED', () => {
+      this.render();
+    });
+    
+    this.eventBus.on('NODE_UPDATED', () => {
+      this.render();
+    });
+    
+    this.eventBus.on('CONNECTION_UPDATED', () => {
+      this.render();
+    });
+  }
+  
+  private render(): void {
+    const selection = this.selectionManager.getSelection();
+    
+    if (!selection) {
+      this.renderEmpty();
+      return;
+    }
+    
+    if (selection.type === 'node') {
+      this.renderNodeProperties(selection.id);
+    } else if (selection.type === 'link') {
+      this.renderLinkProperties(selection.id);
+    }
+  }
+  
+  private renderEmpty(): void {
+    this.container.innerHTML = `
+      
+        No selection
+      
+    `;
+  }
+  
+  private renderNodeProperties(nodeId: string): void {
+    const nodeData = this.api.queries.getNode(nodeId as any);
+    if (!nodeData) return;
+    
+    const definition = this.registry.getNodeDefinition(nodeData.type);
+    const schema = definition?.schema;
+    
+    let html = '';
+    html += `Node Properties`;
+    html += ``;
+    
+    // Basic properties
+    html += `
+      
+        Label
+        
+      
+      
+      
+        Note
+        ${this.escapeHtml(nodeData.note)}
+      
+    `;
+    
+    // Schema-based properties
+    if (schema) {
+      html += ``;
+      html += this.renderSchemaFields(schema, nodeData.data);
+    }
+    
+    html += `
+      
+        Apply
+        Delete Node
+      
+    `;
+    
+    html += ``;
+    this.container.innerHTML = html;
+    
+    this.attachNodeEventListeners(nodeId);
+  }
+  
+  private renderSchemaFields(schema: PropertySchema, data: Readonly<Record>): string {
+    let html = '';
+    
+    Object.entries(schema).forEach(([key, field]) => {
+      const value = data[key] ?? field.default ?? '';
+      
+      html += ``;
+      html += `${field.label}`;
+      
+      if (field.type === 'text') {
+        html += ``;
+      } else if (field.type === 'number') {
+        html += ``;
+      } else if (field.type === 'boolean') {
+        html += ``;
+      } else if (field.type === 'select' && field.options) {
+        html += ``;
+        field.options.forEach(opt => {
+          html += `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}`;
+        });
+        html += ``;
+      }
+      
+      html += ``;
+    });
+    
+    return html;
+  }
+  
+  private renderLinkProperties(linkId: string): void {
+    const linkData = this.api.queries.getLink(linkId as any);
+    if (!linkData) return;
+    
+    let html = '';
+    html += `Connection Properties`;
+    html += ``;
+    
+    html += `
+      
+        Label
+        
+      
+      
+      
+        Stroke Color
+        
+      
+      
+      
+        Stroke Width
+        
+      
+      
+      
+        Apply
+        Delete Connection
+      
+    `;
+    
+    html += ``;
+    this.container.innerHTML = html;
+    
+    this.attachLinkEventListeners(linkId);
+  }
+  
+  private attachNodeEventListeners(nodeId: string): void {
+    this.container.querySelector('#btn-apply')!.addEventListener('click', () => {
+      const label = (this.container.querySelector('#prop-label') as HTMLInputElement).value;
+      const note = (this.container.querySelector('#prop-note') as HTMLTextAreaElement).value;
+      
+      // Collect schema data
+      const data: Record = {};
+      this.container.querySelectorAll('[data-prop-key]').forEach(el => {
+        const key = el.getAttribute('data-prop-key')!;
+        if (el instanceof HTMLInputElement) {
+          data[key] = el.type === 'checkbox' ? el.checked : 
+                     el.type === 'number' ? Number(el.value) : el.value;
+        } else if (el instanceof HTMLSelectElement) {
+          data[key] = el.value;
+        }
+      });
+      
+      this.api.commands.updateNode({
+        id: nodeId as any,
+        label,
+        note,
+        data
+      });
+    });
+    
+    this.container.querySelector('#btn-delete')!.addEventListener('click', () => {
+      if (confirm('Delete this node?')) {
+        this.api.commands.deleteNode(nodeId as any);
+      }
+    });
+  }
+  
+  private attachLinkEventListeners(linkId: string): void {
+    this.container.querySelector('#btn-apply')!.addEventListener('click', () => {
+      const labelText = (this.container.querySelector('#prop-label') as HTMLInputElement).value;
+      const stroke = (this.container.querySelector('#prop-stroke') as HTMLInputElement).value;
+      const strokeWidth = Number((this.container.querySelector('#prop-width') as HTMLInputElement).value);
+      
+      this.api.commands.updateLink({
+        id: linkId as any,
+        label: labelText ? { text: labelText, offset: 0.5 } : undefined,
+        style: { stroke, strokeWidth }
+      });
+    });
+    
+    this.container.querySelector('#btn-delete')!.addEventListener('click', () => {
+      if (confirm('Delete this connection?')) {
+        this.api.commands.deleteLink(linkId as any);
+      }
+    });
+  }
+  
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+}
+```
+
+### CSS Styles
+```css
+.properties-panel {
+  width: 300px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.properties-panel.empty {
+  padding: 32px;
+  text-align: center;
+  color: #999;
+}
+
+.properties-header {
+  font-weight: 600;
+  padding: 16px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.properties-body {
+  padding: 16px;
+}
+
+.property-field {
+  margin-bottom: 16px;
+}
+
+.property-field label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: #666;
+}
+
+.property-field input,
+.property-field textarea,
+.property-field select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.property-field input[type="checkbox"] {
+  width: auto;
+}
+
+.property-divider {
+  height: 1px;
+  background: #e0e0e0;
+  margin: 16px 0;
+}
+
+.property-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.property-actions button {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.property-actions button#btn-apply {
+  background: #0066cc;
+  color: white;
+}
+
+.property-actions button#btn-delete {
+  background: #f0f0f0;
+  color: #666;
+}
+```
+
+### Testing Requirements
+
+Create integration tests for:
+1. Property rendering for nodes
+2. Property rendering for links
+3. Apply button updates
+4. Delete button removes entities
+5. Schema-based fields
+
+### Acceptance Criteria
+
+- [ ] Properties display correctly
+- [ ] Edits apply to selected entity
+- [ ] Schema fields render dynamically
+- [ ] Delete confirmation works
+
+Phase 10 Summary
+Completed Deliverables:
+
+✅ Zoom controls widget
+✅ Node palette
+✅ Properties panel
+✅ Event-driven UI updates
+
+Testing Checklist:
+
+ All UI components render correctly
+ Event subscriptions update UI
+ User interactions trigger correct commands
+
+Next Phase: Phase 11 - Plugin Loader
+
+PHASE 11: Plugin Loader
+Overview
+Implement dynamic plugin loading from manifest files, including JavaScript modules, CSS styles, and plugin validation.
+Objectives
+
+Build manifest parser and loader
+Implement dynamic module importing
+Support CSS injection
+Handle loading errors gracefully
+
+Deliverables
+src/
+└── services/
+    └── PluginLoader.ts    # Dynamic plugin loading
+
+Step 11.1: Plugin Loader Implementation
+Prompt for AI Agent:
+markdown# Task: Implement Plugin Loader
+
+Create the plugin loader that dynamically loads plugins from manifest files.
+
+## Requirements
+
+### File: src/services/PluginLoader.ts
+```typescript
+import { Registry } from '../core/Registry';
+import { EventBus } from '../core/EventBus';
+
+export interface PluginManifest {
+  [bundleName: string]: PluginBundle;
+}
+
+export interface PluginBundle {
+  description: string;
+  nodes?: string[];
+  handlers?: string[];
+  strategies?: string[];
+  connections?: string[];
+  styles?: string[];
+  config?: Record;
+}
+
+export type PluginCategory = 'nodes' | 'handlers' | 'strategies' | 'connections';
+
+export class PluginLoader {
+  private registry: Registry;
+  private eventBus: EventBus;
+  private loadedBundles: Set;
+  
+  constructor(registry: Registry, eventBus: EventBus) {
+    this.registry = registry;
+    this.eventBus = eventBus;
+    this.loadedBundles = new Set();
+  }
+  
+  async loadFromManifest(manifestUrl: string): Promise {
+    try {
+      console.log(`Loading plugin manifest from: ${manifestUrl}`);
+      
+      const response = await fetch(manifestUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch manifest: ${response.statusText}`);
+      }
+      
+      const manifest: PluginManifest = await response.json();
+      const basePath = this.getBasePath(manifestUrl);
+      
+      // Load all bundles
+      for (const [name, bundle] of Object.entries(manifest)) {
+        await this.loadPluginBundle(name, bundle, basePath);
+      }
+      
+      this.eventBus.emit('PLUGINS_LOADED', undefined);
+      console.log('All plugins loaded successfully');
+      
+    } catch (error) {
+      console.error('Failed to load plugins:', error);
+      throw error;
+    }
+  }
+  
+  async loadPluginBundle(
+    name: string,
+    bundle: PluginBundle,
+    basePath: string
+  ): Promise {
+    if (this.loadedBundles.has(name)) {
+      console.warn(`Bundle "${name}" already loaded, skipping`);
+      return;
+    }
+    
+    console.log(`Loading plugin bundle: ${name}`);
+    console.log(`  Description: ${bundle.description}`);
+    
+    try {
+      // Load styles first
+      if (bundle.styles) {
+        for (const styleFile of bundle.styles) {
+          await this.loadStyle(`${basePath}/${styleFile}`);
+        }
+      }
+      
+      // Load plugin modules
+      if (bundle.nodes) {
+        await this.loadModules(bundle.nodes, 'nodes', basePath);
+      }
+      
+      if (bundle.handlers) {
+        await this.loadModules(bundle.handlers, 'handlers', basePath);
+      }
+      
+      if (bundle.strategies) {
+        await this.loadModules(bundle.strategies, 'strategies', basePath);
+      }
+      
+      if (bundle.connections) {
+        await this.loadModules(bundle.connections, 'connections', basePath);
+      }
+      
+      this.loadedBundles.add(name);
+      console.log(`✓ Bundle "${name}" loaded successfully`);
+      
+    } catch (error) {
+      console.error(`Failed to load bundle "${name}":`, error);
+      throw error;
+    }
+  }
+  
+  private async loadModules(
+    files: string[],
+    category: PluginCategory,
+    basePath: string
+  ): Promise {
+    for (const file of files) {
+      const modulePath = `${basePath}/${file}`;
+      
+      try {
+        console.log(`  Loading ${category} module: ${file}`);
+        
+        // Dynamic import
+        const module = await import(/* @vite-ignore */ modulePath);
+        
+        // Register all exported classes
+        this.registerModuleExports(module, category);
+        
+      } catch (error) {
+        console.error(`Failed to load module ${modulePath}:`, error);
+        throw error;
+      }
+    }
+  }
+  
+  private registerModuleExports(module: any, category: PluginCategory): void {
+    const exports = Object.values(module);
+    
+    exports.forEach((exportedItem: any) => {
+      // Check if it's a class/constructor
+      if (typeof exportedItem === 'function' && exportedItem.prototype) {
+        try {
+          // Create instance for registration
+          const instance = new exportedItem();
+          
+          // Register based on category
+          switch (category) {
+            case 'nodes':
+              this.registry.registerNode(instance);
+              console.log(`    ✓ Registered node: ${exportedItem.type}`);
+              break;
+            
+            case 'handlers':
+              this.registry.registerHandler(instance);
+              console.log(`    ✓ Registered handler: ${exportedItem.type}`);
+              break;
+            
+            case 'strategies':
+              this.registry.registerStrategy(instance);
+              console.log(`    ✓ Registered strategy: ${exportedItem.type}`);
+              break;
+            
+            case 'connections':
+              this.registry.registerConnection(instance);
+              console.log(`    ✓ Registered connection: ${exportedItem.type}`);
+              break;
+          }
+        } catch (error) {
+          console.error(`Failed to register plugin:`, error);
+          // Continue with other exports
+        }
+      }
+    });
+  }
+  
+  private async loadStyle(href: string): Promise {
+    return new Promise((resolve, reject) => {
+      // Check if already loaded
+      if (document.querySelector(`link[href="${href}"]`)) {
+        console.log(`  Style already loaded: ${href}`);
+        resolve();
+        return;
+      }
+      
+      console.log(`  Loading style: ${href}`);
+      
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = href;
+      
+      link.onload = () => {
+        console.log(`    ✓ Style loaded: ${href}`);
+        resolve();
+      };
+      
+      link.onerror = () => {
+        console.warn(`    ⚠ Failed to load style: ${href}`);
+        // Don't reject - styles are optional
+        resolve();
+      };
+      
+      document.head.appendChild(link);
+    });
+  }
+  
+  private getBasePath(manifestUrl: string): string {
+    const url = new URL(manifestUrl, window.location.href);
+    const pathParts = url.pathname.split('/');
+    pathParts.pop(); // Remove manifest.json
+    return url.origin + pathParts.join('/');
+  }
+  
+  getLoadedBundles(): string[] {
+    return Array.from(this.loadedBundles);
+  }
+  
+  isLoaded(bundleName: string): boolean {
+    return this.loadedBundles.has(bundleName);
+  }
+}
+```
+
+### Example Manifest File
+```json
+{
+  "core_nodes": {
+    "description": "Core node types for basic workflows",
+    "nodes": [
+      "nodes/StartNode.js",
+      "nodes/EndNode.js",
+      "nodes/TaskNode.js"
+    ],
+    "handlers": [
+      "handlers/StandardHandler.js"
+    ],
+    "connections": [
+      "connections/DefaultConnection.js"
+    ],
+    "styles": [
+      "styles/core-nodes.css"
+    ]
+  },
+  "llm_nodes": {
+    "description": "LLM and AI-related nodes",
+    "nodes": [
+      "nodes/LLMNode.js",
+      "nodes/PromptNode.js"
+    ],
+    "strategies": [
+      "strategies/SequentialStrategy.js"
+    ],
+    "styles": [
+      "styles/llm-nodes.css"
+    ]
+  }
+}
+```
+
+### Testing Requirements
+
+Create integration tests for:
+1. Manifest parsing
+2. Module loading
+3. Style injection
+4. Error handling for missing files
+5. Duplicate bundle detection
+
+### Acceptance Criteria
+
+- [ ] Manifest loads and parses correctly
+- [ ] Modules are dynamically imported
+- [ ] Plugins are validated and registered
+- [ ] Styles are injected into DOM
+- [ ] Errors are logged but don't crash system
+- [ ] PLUGINS_LOADED event emits
+```
+
+---
+
+## Phase 11 Summary
+
+**Completed Deliverables:**
+- ✅ Plugin loader with manifest support
+- ✅ Dynamic module importing
+- ✅ CSS injection
+- ✅ Error handling
+
+**Testing Checklist:**
+- [ ] Manifest parsing works
+- [ ] Plugins load dynamically
+- [ ] Errors handled gracefully
+- [ ] Events emit correctly
+
+**Next Phase:** Phase 12 - Core Plugins
+
+---
+
+# PHASE 12: Core Plugins
+
+## Overview
+
+Implement the default/core plugins that ship with the widget, including basic node types, handlers, connections, and traversal strategies.
+
+## Objectives
+
+- Create core node types (Start, End, Task)
+- Implement standard handlers
+- Build default connection type
+- Create sequential traversal strategy
+
+## Deliverables
+```
+plugins/
+├── nodes/
+│   ├── StartNode.js
+│   ├── EndNode.js
+│   └── TaskNode.js
+├── handlers/
+│   └── StandardHandler.js
+├── connections/
+│   └── DefaultConnection.js
+├── strategies/
+│   └── SequentialStrategy.js
+└── manifest.json
+
+Step 12.1: Core Node Plugins
+Prompt for AI Agent:
+markdown# Task: Implement Core Node Plugins
+
+Create the basic node types that ship with the widget.
+
+## Requirements
+
+### File: plugins/nodes/StartNode.js
+```javascript
+export class StartNode {
+  static type = 'start';
+  static role = 'Core';
+  
+  hasTargetHandlers() {
+    return false;
+  }
+  
+  getIconPath() {
+    return 'M12 2 L12 22 M8 6 L12 2 L16 6';
+  }
+  
+  getShapeTemplate() {
+    return 'M 0,0 L 160,0 L 160,80 L 0,80 Z';
+  }
+  
+  getShapeAttributes() {
+    return {
+      rx: 40,
+      ry: 40
+    };
+  }
+}
+```
+
+### File: plugins/nodes/EndNode.js
+```javascript
+export class EndNode {
+  static type = 'end';
+  static role = 'Core';
+  
+  hasTargetHandlers() {
+    return true;
+  }
+  
+  getIconPath() {
+    return 'M12 2 L12 22 M8 18 L12 22 L16 18';
+  }
+  
+  getShapeTemplate() {
+    return 'M 0,0 L 160,0 L 160,80 L 0,80 Z';
+  }
+  
+  getShapeAttributes() {
+    return {
+      rx: 40,
+      ry: 40
+    };
+  }
+}
+```
+
+### File: plugins/nodes/TaskNode.js
+```javascript
+export class TaskNode {
+  static type = 'task';
+  static role = 'Tools';
+  
+  static schema = {
+    timeout: {
+      type: 'number',
+      label: 'Timeout (ms)',
+      default: 5000
+    },
+    retries: {
+      type: 'number',
+      label: 'Retry Count',
+      default: 3
+    },
+    mode: {
+      type: 'select',
+      label: 'Execution Mode',
+      options: ['sync', 'async'],
+      default: 'sync'
+    }
+  };
+  
+  hasTargetHandlers() {
+    return true;
+  }
+  
+  getIconPath() {
+    return 'M4 4 L20 4 L20 20 L4 20 Z M8 10 L16 10 M8 14 L16 14';
+  }
+  
+  getShapeTemplate() {
+    return 'M 0,0 L 160,0 L 160,80 L 0,80 Z';
+  }
+  
+  getShapeAttributes() {
+    return {
+      rx: 8,
+      ry: 8
+    };
+  }
+}
+```
+
+### File: plugins/nodes/DecisionNode.js
+```javascript
+export class DecisionNode {
+  static type = 'decision';
+  static role = 'Logic';
+  
+  static schema = {
+    condition: {
+      type: 'text',
+      label: 'Condition',
+      default: ''
+    }
+  };
+  
+  hasTargetHandlers() {
+    return true;
+  }
+  
+  getIconPath() {
+    return 'M12 2 L22 12 L12 22 L2 12 Z';
+  }
+  
+  getShapeTemplate() {
+    return 'M 80,0 L 160,40 L 80,80 L 0,40 Z';
+  }
+  
+  getShapeAttributes() {
+    return null;
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Node instantiation
+2. Schema validation
+3. SVG template generation
+4. Icon path validity
+
+### Acceptance Criteria
+
+- [ ] All node types instantiate correctly
+- [ ] Schemas are properly defined
+- [ ] SVG paths are valid
+- [ ] Icons render correctly
+
+Step 12.2: Handler and Connection Plugins
+Prompt for AI Agent:
+markdown# Task: Implement Handler and Connection Plugins
+
+Create the standard handler and default connection type.
+
+## Requirements
+
+### File: plugins/handlers/StandardHandler.js
+```javascript
+export class StandardHandler {
+  static type = 'standard';
+  static flow = 'out'; // Default, can be overridden
+  static dimensions = { width: 12, height: 12 };
+  
+  getShapeTemplate() {
+    return 'M 0,-6 L 6,0 L 0,6 L -6,0 Z';
+  }
+  
+  getShapeAttributes() {
+    return null;
+  }
+}
+
+export class InputHandler {
+  static type = 'input';
+  static flow = 'in';
+  static dimensions = { width: 12, height: 12 };
+  
+  getShapeTemplate() {
+    return 'M -6,-6 L 6,-6 L 6,6 L -6,6 Z';
+  }
+  
+  getShapeAttributes() {
+    return {
+      rx: 2,
+      ry: 2
+    };
+  }
+}
+
+export class OutputHandler {
+  static type = 'output';
+  static flow = 'out';
+  static dimensions = { width: 12, height: 12 };
+  
+  getShapeTemplate() {
+    return 'M -6,-6 L 6,-6 L 6,6 L -6,6 Z';
+  }
+  
+  getShapeAttributes() {
+    return {
+      rx: 2,
+      ry: 2
+    };
+  }
+}
+```
+
+### File: plugins/connections/DefaultConnection.js
+```javascript
+export class DefaultConnection {
+  static type = 'default';
+  
+  constructor() {
+    this.id = '';
+    this.type = 'default';
+    this.sourceHandlerId = '';
+    this.targetHandlerId = '';
+    this.pathType = 'bezier';
+    this.style = {
+      stroke: '#666666',
+      strokeWidth: 2
+    };
+    this.data = {};
+  }
+  
+  getData() {
+    return {
+      id: this.id,
+      type: this.type,
+      sourceHandlerId: this.sourceHandlerId,
+      targetHandlerId: this.targetHandlerId,
+      pathType: this.pathType,
+      style: { ...this.style },
+      data: { ...this.data }
+    };
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Handler type validation
+2. Flow type validation
+3. Connection data serialization
+
+### Acceptance Criteria
+
+- [ ] Handlers validate correctly
+- [ ] Connections serialize properly
+- [ ] SVG shapes render correctly
+
+Step 12.3: Traversal Strategy Plugin
+Prompt for AI Agent:
+markdown# Task: Implement Sequential Traversal Strategy
+
+Create a basic sequential traversal strategy for executing workflows.
+
+## Requirements
+
+### File: plugins/strategies/SequentialStrategy.js
+```javascript
+export class SequentialStrategy {
+  static type = 'sequential';
+  
+  sortNodes(nodes, links) {
+    // Topological sort
+    const sorted = [];
+    const visited = new Set();
+    const temp = new Set();
+    
+    const visit = (node) => {
+      if (temp.has(node.id)) {
+        throw new Error('Cycle detected in graph');
+      }
+      
+      if (visited.has(node.id)) {
+        return;
+      }
+      
+      temp.add(node.id);
+      
+      // Find all outgoing connections
+      const outgoing = links.filter(link => {
+        const sourceNode = nodes.find(n => 
+          n.handlers.some(h => h.id === link.sourceHandlerId)
+        );
+        return sourceNode && sourceNode.id === node.id;
+      });
+      
+      // Visit targets
+      outgoing.forEach(link => {
+        const targetNode = nodes.find(n => 
+          n.handlers.some(h => h.id === link.targetHandlerId)
+        );
+        if (targetNode) {
+          visit(targetNode);
+        }
+      });
+      
+      temp.delete(node.id);
+      visited.add(node.id);
+      sorted.unshift(node);
+    };
+    
+    // Find start nodes (no incoming connections)
+    const startNodes = nodes.filter(node => {
+      const hasIncoming = links.some(link => {
+        return node.handlers.some(h => h.id === link.targetHandlerId);
+      });
+      return !hasIncoming;
+    });
+    
+    startNodes.forEach(node => visit(node));
+    
+    return sorted;
+  }
+  
+  getVisitors() {
+    return {
+      'start': this.visitStart.bind(this),
+      'end': this.visitEnd.bind(this),
+      'task': this.visitTask.bind(this),
+      'decision': this.visitDecision.bind(this)
+    };
+  }
+  
+  getInitialAggregator() {
+    return {
+      executionLog: [],
+      errors: [],
+      results: {}
+    };
+  }
+  
+  visitStart(node, agg, context) {
+    agg.executionLog.push({
+      timestamp: Date.now(),
+      nodeId: node.id,
+      type: node.type,
+      action: 'started'
+    });
+  }
+  
+  visitEnd(node, agg, context) {
+    agg.executionLog.push({
+      timestamp: Date.now(),
+      nodeId: node.id,
+      type: node.type,
+      action: 'completed'
+    });
+  }
+  
+  visitTask(node, agg, context) {
+    agg.executionLog.push({
+      timestamp: Date.now(),
+      nodeId: node.id,
+      type: node.type,
+      action: 'executed',
+      config: node.data
+    });
+    
+    // Simulate task execution
+    agg.results[node.id] = {
+      status: 'success',
+      duration: Math.random() * 1000
+    };
+  }
+  
+  visitDecision(node, agg, context) {
+    agg.executionLog.push({
+      timestamp: Date.now(),
+      nodeId: node.id,
+      type: node.type,
+      action: 'evaluated',
+      condition: node.data.condition
+    });
+  }
+}
+```
+
+### Testing Requirements
+
+Create unit tests for:
+1. Topological sorting
+2. Cycle detection
+3. Visitor execution
+4. Aggregator updates
+
+### Acceptance Criteria
+
+- [ ] Topological sort works correctly
+- [ ] Cycles are detected
+- [ ] Visitors execute in order
+- [ ] Aggregator accumulates results
+
+Step 12.4: Plugin Manifest
+Prompt for AI Agent:
+markdown# Task: Create Plugin Manifest
+
+Create the manifest file that defines the core plugin bundle.
+
+## Requirements
+
+### File: plugins/manifest.json
+```json
+{
+  "core": {
+    "description": "Core nodes and handlers for basic workflows",
+    "nodes": [
+      "nodes/StartNode.js",
+      "nodes/EndNode.js",
+      "nodes/TaskNode.js",
+      "nodes/DecisionNode.js"
+    ],
+    "handlers": [
+      "handlers/StandardHandler.js"
+    ],
+    "connections": [
+      "connections/DefaultConnection.js"
+    ],
+    "strategies": [
+      "strategies/SequentialStrategy.js"
+    ],
+    "styles": [
+      "styles/core.css"
+    ]
+  }
+}
+```
+
+### File: plugins/styles/core.css
+```css
+/* Core node styles */
+.node[data-node-type="start"] .node-body {
+  fill: #e8f5e9;
+  stroke: #4caf50;
+}
+
+.node[data-node-type="end"] .node-body {
+  fill: #ffebee;
+  stroke: #f44336;
+}
+
+.node[data-node-type="task"] .node-body {
+  fill: #e3f2fd;
+  stroke: #2196f3;
+}
+
+.node[data-node-type="decision"] .node-body {
+  fill: #fff3e0;
+  stroke: #ff9800;
+}
+
+/* Handler styles */
+.handler[data-flow="in"] .handler-shape {
+  fill: #4caf50;
+}
+
+.handler[data-flow="out"] .handler-shape {
+  fill: #2196f3;
+}
+
+/* Selection styles */
+.node-body.selected {
+  filter: drop-shadow(0 0 8px rgba(0, 102, 204, 0.6));
+}
+
+.connection-path.selected {
+  filter: drop-shadow(0 0 4px rgba(0, 102, 204, 0.6));
+}
+```
+
+### Testing Requirements
+
+Integration test to verify:
+1. Manifest loads all files
+2. All plugins register correctly
+3. Styles apply correctly
+
+### Acceptance Criteria
+
+- [ ] Manifest structure is valid
+- [ ] All paths are correct
+- [ ] Styles load and apply
+```
+
+---
+
+## Phase 12 Summary
+
+**Completed Deliverables:**
+- ✅ Core node types (Start, End, Task, Decision)
+- ✅ Standard handlers
+- ✅ Default connection type
+- ✅ Sequential traversal strategy
+- ✅ Plugin manifest and styles
+
+**Testing Checklist:**
+- [ ] All plugins load correctly
+- [ ] Nodes render with correct styles
+- [ ] Traversal strategy executes
+- [ ] Manifest parses successfully
+
+**Next Phase:** Phase 13 - Widget Integration
+
+---
+
+# PHASE 13: Widget Integration
+
+## Overview
+
+Integrate all components into the main widget class and provide the public entry point for consumers.
+
+## Objectives
+
+- Create main widget class
+- Initialize all services
+- Expose public API
+- Handle widget lifecycle
+- Provide configuration options
+
+## Deliverables
+```
+src/
+├── core/
+│   └── Widget.ts          # Main widget entry point
+└── index.ts               # Public exports
+
+Step 13.1: Main Widget Class
+Prompt for AI Agent:
+markdown# Task: Implement Main Widget Class
+
+Create the main widget class that orchestrates all services and provides the public API.
+
+## Requirements
+
+### File: src/core/Widget.ts
+```typescript
+import * as d3 from 'd3';
+import { EventBus } from './EventBus';
+import { Store } from './State';
+import { Registry } from './Registry';
+import { SelectionManager } from './SelectionManager';
+import { Config } from './Config';
+import { DiagramAPI } from './API';
+import { HistoryManager } from '../services/HistoryManager';
+import { SerializationService } from '../services/SerializationService';
+import { PluginLoader } from '../services/PluginLoader';
+import { InputSystem } from '../services/InputSystem';
+import { RenderEngine } from '../rendering/RenderEngine';
+import { ZoomControls } from '../components/ZoomControls';
+import { NodePalette } from '../components/NodePalette';
+import { PropertiesPanel } from '../components/PropertiesPanel';
+import { WidgetConfig, WidgetAPI, EventCallback, UnsubscribeFn, EventType } from './types';
+
+export class DAGWidget {
+  public readonly api: WidgetAPI;
+  
+  private eventBus: EventBus;
+  private store: Store;
+  private registry: Registry;
+  private selectionManager: SelectionManager;
+  private historyManager: HistoryManager;
+  private serializationService: SerializationService;
+  private pluginLoader: PluginLoader;
+  private renderEngine: RenderEngine;
+  private inputSystem: InputSystem;
+  
+  private container: HTMLElement;
+  private svg: SVGSVGElement;
+  
+  private ui?: {
+    zoomControls: ZoomControls;
+    nodePalette: NodePalette;
+    propertiesPanel: PropertiesPanel;
+  };
+  
+  constructor(config: WidgetConfig) {
+    // Resolve container
+    this.container = typeof config.container === 'string'
+      ? document.querySelector(config.container)!
+      : config.container;
+    
+    if (!this.container) {
+      throw new Error('Container not found');
+    }
+    
+    // Initialize core services
+    this.eventBus = new EventBus();
+    this.registry = new Registry();
+    this.selectionManager = new SelectionManager(this.eventBus);
+    this.store = new Store(this.eventBus);
+    
+    this.historyManager = new HistoryManager(
+      Config.HISTORY_MAX_DEPTH,
+      () => this.serializationService.serialize(),
+      (state) => this.store.setState(this.serializationService.deserialize(state)),
+      this.eventBus
+    );
+    
+    this.serializationService = new SerializationService(this.registry, this.store);
+    this.pluginLoader = new PluginLoader(this.registry, this.eventBus);
+    
+    // Create DOM structure
+    this.createDOMStructure(config);
+    
+    // Initialize rendering
+    this.renderEngine = new RenderEngine(
+      this.svg,
+      this.store,
+      this.registry,
+      this.eventBus,
+      this.selectionManager
+    );
+    
+    // Initialize input system
+    this.inputSystem = new InputSystem(
+      this.svg,
+      this.store,
+      this.registry,
+      this.eventBus,
+      this.selectionManager,
+      this.renderEngine
+    );
+    
+    // Create API
+    const apiInstance = new DiagramAPI(
+      this.eventBus,
+      this.store,
+      this.registry,
+      this.selectionManager,
+      this.historyManager,
+      this.serializationService
+    );
+    
+    this.api = apiInstance;
+    
+    // Load plugins if manifest URL provided
+    if (config.manifestUrl) {
+      this.loadPlugins(config.manifestUrl);
+    }
+    
+    // Create UI components if requested
+    if (config.showDefaultUI !== false) {
+      this.createUIComponents();
+    }
+    
+    // Set initial transform
+    if (config.initialZoom || config.initialOffset) {
+      this.store.setTransform({
+        k: config.initialZoom || 1,
+        x: config.initialOffset?.x || 0,
+        y: config.initialOffset?.y || 0
+      });
+    }
+    
+    // Start render loop
+    this.renderEngine.startRenderLoop();
+    
+    // Initialize history
+    this.historyManager.save();
+  }
+  
+  private createDOMStructure(config: WidgetConfig): void {
+    this.container.innerHTML = '';
+    
+    // Set container styles
+    Object.assign(this.container.style, {
+      position: 'relative',
+      width: typeof config.width === 'number' ? `${config.width}px` : (config.width || '100%'),
+      height: typeof config.height === 'number' ? `${config.height}px` : (config.height || '600px'),
+      overflow: 'hidden',
+      background: '#fafafa'
+    });
+    
+    // Create SVG canvas
+    this.svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    this.svg.setAttribute('width', '100%');
+    this.svg.setAttribute('height', '100%');
+    this.svg.style.cursor = 'grab';
+    
+    this.container.appendChild(this.svg);
+    
+    // Create UI containers
+    if (config.showDefaultUI !== false) {
+      const uiContainer = document.createElement('div');
+      uiContainer.className = 'dag-widget-ui';
+      uiContainer.innerHTML = `
+        <div class="ui-top-left" id="zoom-controls-container"></div>
+        <div class="ui-left" id="node-palette-container"></div>
+        <div class="ui-right" id="properties-panel-container"></div>
+      `;
+      
+      this.container.appendChild(uiContainer);
+      
+      // Add UI styles
+      this.injectUIStyles();
+    }
+  }
+  
+  private createUIComponents(): void {
+    const zoomContainer = this.container.querySelector('#zoom-controls-container') as HTMLElement;
+    const paletteContainer = this.container.querySelector('#node-palette-container') as HTMLElement;
+    const propertiesContainer = this.container.querySelector('#properties-panel-container') as HTMLElement;
+    
+    if (zoomContainer && paletteContainer && propertiesContainer) {
+      this.ui = {
+        zoomControls: new ZoomControls(zoomContainer, this.api as DiagramAPI, this.eventBus),
+        nodePalette: new NodePalette(paletteContainer, this.registry, this.api as DiagramAPI),
+        propertiesPanel: new PropertiesPanel(
+          propertiesContainer,
+          this.eventBus,
+          this.selectionManager,
+          this.api as DiagramAPI,
+          this.registry
+        )
+      };
+      
+      // Refresh palette when plugins load
+      this.eventBus.on('PLUGINS_LOADED', () => {
+        this.ui!.nodePalette.refresh();
+      });
+    }
+  }
+  
+  private injectUIStyles(): void {
+    if (document.querySelector('#dag-widget-ui-styles')) return;
+    
+    const style = document.createElement('style');
+    style.id = 'dag-widget-ui-styles';
+    style.textContent = `
+      .dag-widget-ui {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        pointer-events: none;
+      }
+      
+      .dag-widget-ui > * {
+        pointer-events: auto;
+      }
+      
+      .ui-top-left {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+      }
+      
+      .ui-left {
+        position: absolute;
+        top: 80px;
+        left: 16px;
+        max-height: calc(100% - 96px);
+      }
+      
+      .uiContinue09:28-right {
+position: absolute;
+top: 16px;
+right: 16px;
+max-height: calc(100% - 32px);
+}
+`;
+document.head.appendChild(style);
+}
+private async loadPlugins(manifestUrl: string): Promise<void> {
+try {
+await this.pluginLoader.loadFromManifest(manifestUrl);
+} catch (error) {
+console.error('Failed to load plugins:', error);
+}
+}
+// ========== PUBLIC API ==========
+subscribe(callback: EventCallback<any>): UnsubscribeFn {
+// Subscribe to all events
+const unsubscribers: UnsubscribeFn[] = [];
+const eventTypes: EventType[] = [
+  'NODE_CREATED', 'NODE_UPDATED', 'NODE_REMOVED', 'NODE_MOVED',
+  'CONNECTION_CREATED', 'CONNECTION_UPDATED', 'CONNECTION_REMOVED',
+  'SELECTION_CHANGED', 'HISTORY_CHANGED', 'STATE_LOADED',
+  'PLUGINS_LOADED', 'TRAVERSE_COMPLETED', 'TRAVERSE_ERROR',
+  'RENDER_REQUESTED', 'NOTE_CREATED', 'NOTE_UPDATED', 'NOTE_REMOVED'
+];
+
+eventTypes.forEach(event => {
+  unsubscribers.push(
+    this.eventBus.on(event, (payload) => callback(payload))
+  );
+});
+
+return () => {
+  unsubscribers.forEach(unsub => unsub());
+};
+}
+// Legacy dispatch method for backwards compatibility
+dispatch(command: string, payload?: unknown): unknown {
+console.warn('dispatch() is deprecated. Use api.commands or api.queries instead.');
+// Map legacy commands to new API
+switch (command) {
+  case 'createNode':
+    this.api.commands.createNode(payload as any);
+    break;
+  case 'deleteNode':
+    this.api.commands.deleteNode(payload as any);
+    break;
+  // ... other legacy commands
+  default:
+    console.warn(`Unknown command: ${command}`);
+}
+
+return undefined;
+}
+destroy(): void {
+this.renderEngine.stopRenderLoop();
+this.renderEngine.destroy();
+this.eventBus.clear();
+this.container.innerHTML = '';
+}
+}
+
+### File: src/index.ts
+````typescript
+// Main export
+export { DAGWidget } from './core/Widget';
+
+// Type exports
+export type {
+  WidgetConfig,
+  WidgetAPI,
+  WidgetCommands,
+  WidgetQueries,
+  CreateNodePayload,
+  UpdateNodePayload,
+  SpawnConnectedPayload,
+  UpdateLinkPayload,
+  TraversePayload,
+  NodeMetadata,
+  NodeData,
+  ConnectionData,
+  SerializedState,
+  EventType,
+  EventCallback,
+  UnsubscribeFn
+} from './core/types';
+
+// Enum exports
+export { NodeRole, FlowType, Direction, ConnectionPathType } from './core/types';
+
+// Plugin interfaces for extension
+export type {
+  NodePluginDefinition,
+  HandlerPluginDefinition,
+  StrategyPluginDefinition,
+  ConnectionPluginDefinition,
+  PropertySchema
+} from './core/types';
+````
+
+### Testing Requirements
+
+Create integration tests for:
+1. Widget initialization
+2. Plugin loading
+3. UI component creation
+4. Event subscription
+5. API access
+6. Cleanup on destroy
+
+### Acceptance Criteria
+
+- [ ] Widget initializes with all services
+- [ ] Plugins load on construction
+- [ ] UI components render if enabled
+- [ ] API is accessible
+- [ ] Events propagate correctly
+- [ ] Cleanup works properly
+
+Step 13.2: Usage Documentation
+Prompt for AI Agent:
+markdown# Task: Create Usage Documentation
+
+Create comprehensive usage documentation with examples.
+
+## Requirements
+
+### File: README.md
+````markdown
+# Diagram Editor Widget
+
+A modular, plugin-based visual graph editor for TypeScript applications.
+
+## Installation
+```bash
+npm install diagram-editor-widget
+```
+
+## Quick Start
+```typescript
+import { DAGWidget } from 'diagram-editor-widget';
+
+const widget = new DAGWidget({
+  container: '#diagram-container',
+  width: '100%',
+  height: '600px',
+  manifestUrl: '/plugins/manifest.json',
+  showDefaultUI: true
+});
+
+// Subscribe to events
+widget.subscribe((payload) => {
+  console.log('Event:', payload);
+});
+
+// Create a node
+widget.api.commands.createNode({
+  type: 'task',
+  x: 200,
+  y: 100,
+  label: 'My Task'
+});
+
+// Export graph
+const state = widget.api.queries.getGraphData();
+console.log(JSON.stringify(state, null, 2));
+```
+
+## Configuration
+```typescript
+interface WidgetConfig {
+  container: HTMLElement | string;  // DOM element or selector
+  width?: string | number;          // Default: '100%'
+  height?: string | number;         // Default: '600px'
+  showDefaultUI?: boolean;          // Default: true
+  initialZoom?: number;             // Default: 1
+  initialOffset?: { x: number; y: number }; // Default: { x: 0, y: 0 }
+  manifestUrl?: string;             // Plugin manifest URL
+}
+```
+
+## API Reference
+
+### Commands (Mutations)
+
+All commands return `void` and emit events on completion.
+```typescript
+// Node operations
+widget.api.commands.createNode({ type, x, y, label?, data? });
+widget.api.commands.updateNode({ id, label?, note?, style?, data? });
+widget.api.commands.deleteNode(id);
+
+// Connection operations
+widget.api.commands.createLink(sourceHandlerId, targetHandlerId);
+widget.api.commands.updateLink({ id, label?, style? });
+widget.api.commands.deleteLink(id);
+
+// History
+widget.api.commands.undo();
+widget.api.commands.redo();
+
+// Viewport
+widget.api.commands.zoomIn();
+widget.api.commands.zoomOut();
+widget.api.commands.zoomReset();
+widget.api.commands.zoomFit();
+
+// Selection
+widget.api.commands.selectObject('node', id);
+widget.api.commands.deselectAll();
+
+// State management
+widget.api.commands.importState(serializedState);
+
+// Traversal
+await widget.api.commands.traverseDiagram({ strategy: 'sequential' });
+```
+
+### Queries (Data Access)
+
+All queries return immutable data copies.
+```typescript
+// Get node data
+const node = widget.api.queries.getNode(id);
+
+// Get all registered node types
+const nodeTypes = widget.api.queries.getAllNodesDefinition();
+
+// Get node icon
+const iconPath = widget.api.queries.getNodeIconPathData('task');
+
+// Get connection data
+const link = widget.api.queries.getLink(id);
+
+// Export complete graph
+const state = widget.api.queries.getGraphData();
+```
+
+### Events
+
+Subscribe to system events:
+```typescript
+widget.subscribe((event, payload) => {
+  switch (event) {
+    case 'NODE_CREATED':
+      console.log('Node created:', payload);
+      break;
+    case 'SELECTION_CHANGED':
+      console.log('Selection:', payload);
+      break;
+    // ... other events
+  }
+});
+```
+
+Available events:
+- `NODE_CREATED`, `NODE_UPDATED`, `NODE_REMOVED`, `NODE_MOVED`
+- `CONNECTION_CREATED`, `CONNECTION_UPDATED`, `CONNECTION_REMOVED`
+- `SELECTION_CHANGED`
+- `HISTORY_CHANGED`
+- `STATE_LOADED`
+- `PLUGINS_LOADED`
+- `TRAVERSE_COMPLETED`, `TRAVERSE_ERROR`
+
+## Creating Custom Plugins
+
+### Custom Node Type
+```typescript
+export class MyCustomNode {
+  static type = 'my_custom_node';
+  static role = 'Tools';
+  
+  static schema = {
+    myProperty: {
+      type: 'text',
+      label: 'My Property',
+      default: 'default value'
+    }
+  };
+  
+  hasTargetHandlers() {
+    return true;
+  }
+  
+  getIconPath() {
+    return 'M 0,0 L 24,0 L 24,24 L 0,24 Z';
+  }
+  
+  getShapeTemplate() {
+    return 'M 0,0 L 160,0 L 160,80 L 0,80 Z';
+  }
+  
+  getShapeAttributes() {
+    return { rx: 8, ry: 8 };
+  }
+}
+```
+
+### Custom Strategy
+```typescript
+export class MyCustomStrategy {
+  static type = 'my_strategy';
+  
+  sortNodes(nodes, links) {
+    // Custom sorting logic
+    return nodes;
+  }
+  
+  getVisitors() {
+    return {
+      'my_custom_node': (node, agg, context) => {
+        // Process node
+        agg.results.push(node.data);
+      }
+    };
+  }
+  
+  getInitialAggregator() {
+    return { results: [] };
+  }
+}
+```
+
+## License
+
+MIT
+````
+
+### Acceptance Criteria
+
+- [ ] Documentation is comprehensive
+- [ ] Examples are accurate
+- [ ] API reference is complete
+- [ ] Plugin creation guide is clear
+
+Phase 13 Summary
+Completed Deliverables:
+
+✅ Main widget class
+✅ Service initialization
+✅ UI component integration
+✅ Public API exposure
+✅ Usage documentation
+
+Testing Checklist:
+
+ Widget initializes correctly
+ All services are connected
+ UI components function
+ Documentation examples work
+
+Final Integration Test:
+
+ Create full workflow end-to-end
+ Load plugins dynamically
+ Create/edit/delete nodes
+ Undo/redo operations
+ Export/import state
+ Execute traversal strategy

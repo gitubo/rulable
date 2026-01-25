@@ -1,0 +1,291 @@
+1. Requirements Specification
+1.1 Overview
+The Diagram Editor Widget is a modular, plugin-based visual editor for creating and manipulating graphs. It provides an interactive canvas where users can create nodes, connect them with links, add annotations, and execute graph traversal strategies. The system is designed with a strict separation between data queries, state mutations, and event notifications.
+1.2 Core Features
+1.2.1 Graph Construction
+
+REQ-GRAPH-001: The system SHALL allow users to create nodes of different types through a visual interface
+REQ-GRAPH-002: The system SHALL support connecting nodes through handlers (connection points)
+REQ-GRAPH-003: The system SHALL validate connections based on handler flow types (in, out, bi, any)
+REQ-GRAPH-004: The system SHALL prevent invalid connections (self-loops, incompatible flow types)
+REQ-GRAPH-005: The system SHALL support multiple connection path types (Bezier, Smooth Step, Straight)
+REQ-GRAPH-006: The system SHALL allow adding text annotations (notes) to the canvas
+REQ-GRAPH-007: The system SHALL support link labels with customizable positioning along the path
+
+1.2.2 Visual Rendering
+
+REQ-RENDER-001: The system SHALL render nodes using SVG with customizable shapes and styles
+REQ-RENDER-002: The system SHALL render connections with adaptive path routing based on handler directions
+REQ-RENDER-003: The system SHALL support grid-based snapping for node positioning
+REQ-RENDER-004: The system SHALL provide visual feedback for selections, hover states, and drag operations
+REQ-RENDER-005: The system SHALL render handler connection points with directional indicators
+REQ-RENDER-006: The system SHALL support dynamic node sizing based on content and handler count
+REQ-RENDER-007: The system SHALL provide infinite canvas with grid pattern background
+
+1.2.3 User Interactions
+
+REQ-INTERACT-001: The system SHALL support dragging nodes with smooth movement
+REQ-INTERACT-002: The system SHALL support creating connections by dragging from source handlers
+REQ-INTERACT-003: The system SHALL provide visual ghost connection during link creation
+REQ-INTERACT-004: The system SHALL support inline text editing on double-click for labels
+REQ-INTERACT-005: The system SHALL provide context menus for nodes, links, and handlers
+REQ-INTERACT-006: The system SHALL support zooming and panning of the canvas
+REQ-INTERACT-007: The system SHALL support selection of graph elements (nodes, links)
+REQ-INTERACT-008: The system SHALL support dragging link labels along the connection path
+REQ-INTERACT-009: The system SHALL support resizing and dragging of note annotations
+
+1.2.4 State Management
+
+REQ-STATE-001: The system SHALL maintain a centralized state for nodes, links, and notes
+REQ-STATE-002: The system SHALL implement undo/redo functionality with delta-based history
+REQ-STATE-003: The system SHALL support serialization and deserialization of graph state
+REQ-STATE-004: The system SHALL cache handler positions for performance optimization
+REQ-STATE-005: The system SHALL maintain node-link relationships in a lookup cache
+REQ-STATE-006: The system SHALL separate transient UI state from persistent graph data
+
+1.2.5 Properties and Configuration
+
+REQ-PROPS-001: The system SHALL provide a properties panel for editing node attributes
+REQ-PROPS-002: The system SHALL support schema-based property forms for nodes
+REQ-PROPS-003: The system SHALL support custom property editors for specialized node types
+REQ-PROPS-004: The system SHALL allow editing link visual properties (color, width, labels)
+REQ-PROPS-005: The system SHALL support dynamic property updates with immediate visual feedback
+
+1.3 Plugin System
+1.3.1 Plugin Architecture
+
+REQ-PLUGIN-001: The system SHALL support loading plugins from a manifest file
+REQ-PLUGIN-002: The system SHALL provide a registry for node definitions, handler definitions, and strategies
+REQ-PLUGIN-003: The system SHALL validate plugin interfaces during registration
+REQ-PLUGIN-004: The system SHALL support loading plugin-specific CSS stylesheets
+REQ-PLUGIN-005: The system SHALL allow plugins to define custom node shapes via SVG templates
+REQ-PLUGIN-006: The system SHALL support plugin bundles with multiple related components
+
+1.3.2 Node Plugins
+
+REQ-NODE-PLUGIN-001: Node plugins SHALL define a unique type identifier
+REQ-NODE-PLUGIN-002: Node plugins SHALL specify a role category (Core, Data, Tools, Logic, Agent)
+REQ-NODE-PLUGIN-003: Node plugins SHALL provide SVG icon path data for visual representation
+REQ-NODE-PLUGIN-004: Node plugins SHALL define handler configurations (position, type, direction)
+REQ-NODE-PLUGIN-005: Node plugins SHALL support schema-based data properties
+REQ-NODE-PLUGIN-006: Node plugins SHALL implement serialization/deserialization methods
+REQ-NODE-PLUGIN-007: Node plugins SHALL support custom shape templates with dynamic dimensions
+
+1.3.3 Handler Plugins
+
+REQ-HANDLER-PLUGIN-001: Handler plugins SHALL define a unique type identifier
+REQ-HANDLER-PLUGIN-002: Handler plugins SHALL specify flow direction (in, out, bi, any)
+REQ-HANDLER-PLUGIN-003: Handler plugins SHALL provide SVG shape templates
+REQ-HANDLER-PLUGIN-004: Handler plugins SHALL support custom label rendering
+REQ-HANDLER-PLUGIN-005: Handler plugins SHALL support rendering extra UI elements (e.g., add-node helpers)
+
+1.3.4 Strategy Plugins
+
+REQ-STRATEGY-PLUGIN-001: Strategy plugins SHALL define graph traversal logic
+REQ-STRATEGY-PLUGIN-002: Strategy plugins SHALL implement node sorting algorithms
+REQ-STRATEGY-PLUGIN-003: Strategy plugins SHALL provide visitor patterns for node processing
+REQ-STRATEGY-PLUGIN-004: Strategy plugins SHALL support async operations during traversal
+
+1.3.5 Connection Plugins
+
+REQ-CONNECTION-PLUGIN-001: Connection plugins SHALL define visual rendering behavior
+REQ-CONNECTION-PLUGIN-002: Connection plugins SHALL support custom style properties
+REQ-CONNECTION-PLUGIN-003: Connection plugins SHALL implement path calculation methods
+
+1.4 External Interface (API)
+1.4.1 Command-Query Separation (CQS) Pattern
+
+REQ-API-001: The system SHALL strictly separate commands (mutations) from queries (data access)
+REQ-API-002: Commands SHALL return void and emit events for state changes
+REQ-API-003: Queries SHALL return immutable data copies and produce no side effects
+REQ-API-004: The system SHALL provide a unified API facade with commands and queries namespaces
+
+1.4.2 Commands (State Mutations)
+
+REQ-CMD-001: loadPlugins(url?): Load and register plugins from manifest
+REQ-CMD-002: createNode(payload): Create a new node at specified position
+REQ-CMD-003: deleteNode(id): Remove a node and its connections
+REQ-CMD-004: updateNode(payload): Modify node properties
+REQ-CMD-005: createLink(sourceHandlerId, targetHandlerId): Create connection between handlers
+REQ-CMD-006: deleteLink(id): Remove a connection
+REQ-CMD-007: updateLink(payload): Modify link properties
+REQ-CMD-008: createNote(x, y): Add annotation to canvas
+REQ-CMD-009: deleteNote(id): Remove annotation
+REQ-CMD-010: undo(): Revert last state change
+REQ-CMD-011: redo(): Reapply undone state change
+REQ-CMD-012: zoomIn(), zoomOut(), zoomReset(), zoomFit(): Viewport controls
+REQ-CMD-013: importState(data): Load saved graph state
+REQ-CMD-014: selectObject(type, id): Set selection
+REQ-CMD-015: deselectAll(): Clear selection
+REQ-CMD-016: spawnNodeConnected(payload): Create and auto-connect node
+REQ-CMD-017: traverseDiagram(payload): Execute graph traversal strategy
+
+1.4.3 Queries (Data Access)
+
+REQ-QUERY-001: getNode(id): Retrieve immutable node data
+REQ-QUERY-002: getLink(id): Retrieve immutable link data
+REQ-QUERY-003: getAllNodesDefinition(): Get metadata for all registered node types
+REQ-QUERY-004: getNodeIconPathData(type): Get SVG path for node icon
+REQ-QUERY-005: getGraphData(): Export complete serialized graph state
+
+1.4.4 Events (External Notifications)
+
+REQ-EVENT-001: The system SHALL emit events for all state changes
+REQ-EVENT-002: The system SHALL support event subscription with callback registration
+REQ-EVENT-003: Event payloads SHALL contain relevant data for external observers
+REQ-EVENT-004: Events SHALL be emitted after state changes are complete
+
+Event Catalog:
+
+PLUGINS_LOADED: Plugin loading complete
+NODE_CREATED: Node added to graph
+NODE_UPDATED: Node properties changed
+NODE_REMOVED: Node deleted
+NODE_MOVED: Node position changed (includes old/new positions)
+CONNECTION_CREATED: Link established
+CONNECTION_UPDATED: Link properties changed
+CONNECTION_REMOVED: Link deleted
+SELECTION_CHANGED: Selection state changed
+HISTORY_CHANGED: Undo/redo state changed (includes canUndo/canRedo flags)
+STATE_LOADED: Graph state imported
+TRAVERSE_COMPLETED: Graph traversal finished
+TRAVERSE_ERROR: Graph traversal failed
+EXPORT_READY: Serialized data available
+
+1.5 Geometry and Path Routing
+1.5.1 Connection Path Calculation
+
+REQ-GEOM-001: The system SHALL support orthogonal routing for smooth-step connections
+REQ-GEOM-002: The system SHALL implement clearance zones to prevent connections overlapping nodes
+REQ-GEOM-003: The system SHALL calculate control points for Bezier curves based on handler directions
+REQ-GEOM-004: The system SHALL support omni-directional handlers with dynamic vector calculation
+REQ-GEOM-005: The system SHALL filter co-linear points for path optimization
+REQ-GEOM-006: The system SHALL apply rounded corners to orthogonal paths
+
+1.5.2 Spatial Calculations
+
+REQ-GEOM-007: The system SHALL calculate positions along paths for label placement
+REQ-GEOM-008: The system SHALL find closest points on paths for label dragging
+REQ-GEOM-009: The system SHALL transform between screen and graph coordinates
+REQ-GEOM-010: The system SHALL support grid snapping with configurable spacing
+
+1.6 Rendering System
+1.6.1 Rendering Pipeline
+
+REQ-RENDER-PIPE-001: The system SHALL use requestAnimationFrame for render loop
+REQ-RENDER-PIPE-002: The system SHALL implement dirty flags for selective rendering
+REQ-RENDER-PIPE-003: The system SHALL separate full renders from high-frequency updates
+REQ-RENDER-PIPE-004: The system SHALL render layers in order: grid, notes, links, labels, nodes
+REQ-RENDER-PIPE-005: The system SHALL update only affected links during node movement
+
+1.6.2 Node Rendering
+
+REQ-RENDER-NODE-001: The system SHALL render node body using SVG path templates
+REQ-RENDER-NODE-002: The system SHALL scale and position node icons within bounds
+REQ-RENDER-NODE-003: The system SHALL truncate text labels that exceed node width
+REQ-RENDER-NODE-004: The system SHALL render handlers with correct positioning and styling
+REQ-RENDER-NODE-005: The system SHALL apply custom attributes from node definitions
+REQ-RENDER-NODE-006: The system SHALL support dynamic node height based on handler count
+
+1.6.3 Link Rendering
+
+REQ-RENDER-LINK-001: The system SHALL render link paths using calculated geometry
+REQ-RENDER-LINK-002: The system SHALL provide invisible hit areas for click detection
+REQ-RENDER-LINK-003: The system SHALL render link labels with background rectangles
+REQ-RENDER-LINK-004: The system SHALL apply custom styles (color, width) to links
+REQ-RENDER-LINK-005: The system SHALL render ghost connections during link creation
+
+1.7 Performance and Optimization
+1.7.1 Caching
+
+REQ-PERF-001: The system SHALL cache absolute handler positions after node updates
+REQ-PERF-002: The system SHALL maintain node-to-links lookup map for efficient queries
+REQ-PERF-003: The system SHALL rebuild caches only when topology changes
+
+1.7.2 Incremental Updates
+
+REQ-PERF-004: The system SHALL use high-frequency events for drag operations
+REQ-PERF-005: The system SHALL defer history snapshots until interactions complete
+REQ-PERF-006: The system SHALL batch visual updates during continuous operations
+
+1.8 User Interface Components
+1.8.1 Zoom Panel
+
+REQ-UI-001: The system SHALL provide zoom in/out/reset/fit controls
+REQ-UI-002: The system SHALL provide undo/redo buttons with enabled/disabled states
+REQ-UI-003: The system SHALL provide add node/note buttons
+
+1.8.2 Properties Panel
+
+REQ-UI-004: The system SHALL display editable properties for selected elements
+REQ-UI-005: The system SHALL support apply/cancel operations for property changes
+REQ-UI-006: The system SHALL render schema-based forms for structured data
+REQ-UI-007: The system SHALL support custom property renderers for complex types
+
+1.8.3 Node Palette
+
+REQ-UI-008: The system SHALL display available node types grouped by role
+REQ-UI-009: The system SHALL show node icons and labels in palette
+REQ-UI-010: The system SHALL allow spawning nodes from palette to canvas
+
+1.8.4 Context Menus
+
+REQ-UI-011: The system SHALL provide context menus for nodes, links, and handlers
+REQ-UI-012: The system SHALL support edit, delete, and custom actions in menus
+REQ-UI-013: The system SHALL position menus at cursor location
+
+1.9 Serialization and Persistence
+1.9.1 Export Format
+
+REQ-SERIAL-001: The system SHALL export graph as JSON with metadata
+REQ-SERIAL-002: The system SHALL include viewport state in export
+REQ-SERIAL-003: The system SHALL use hash-map structure for nodes and connections
+REQ-SERIAL-004: The system SHALL preserve handler IDs during serialization
+
+1.9.2 Import/Restore
+
+REQ-SERIAL-005: The system SHALL restore nodes with correct handler ID mapping
+REQ-SERIAL-006: The system SHALL rebuild connections after node restoration
+REQ-SERIAL-007: The system SHALL apply saved viewport transform after import
+REQ-SERIAL-008: The system SHALL validate plugin availability during import
+
+1.10 History Management
+1.10.1 Undo/Redo Implementation
+
+REQ-HISTORY-001: The system SHALL use delta/patch strategy for history
+REQ-HISTORY-002: The system SHALL track forward and backward patches
+REQ-HISTORY-003: The system SHALL maintain head state for current graph
+REQ-HISTORY-004: The system SHALL limit history depth to configurable maximum
+REQ-HISTORY-005: The system SHALL clear redo stack on new mutations
+REQ-HISTORY-006: The system SHALL ignore zero-change operations
+
+1.11 Connection Validation
+1.11.1 Validation Rules
+
+REQ-VALID-001: The system SHALL validate flow compatibility using truth table
+REQ-VALID-002: The system SHALL prevent connections from handler to itself
+REQ-VALID-003: The system SHALL support connection rules: in↔out, bi↔bi, any↔all
+REQ-VALID-004: The system SHALL provide validation feedback before connection creation
+
+1.12 Input System
+1.12.1 Interaction State Machine
+
+REQ-INPUT-001: The system SHALL implement state pattern for interactions
+REQ-INPUT-002: States: Idle, NodeDrag, ConnectionCreation, LinkLabelDrag
+REQ-INPUT-003: The system SHALL handle mouse events (down, move, up) per state
+REQ-INPUT-004: The system SHALL prevent zoom during element interactions
+
+1.12.2 Inline Editing
+
+REQ-INPUT-005: The system SHALL support inline text editing with HTML input overlay
+REQ-INPUT-006: The system SHALL match font styles between SVG and input
+REQ-INPUT-007: The system SHALL commit changes on Enter or blur
+REQ-INPUT-008: The system SHALL cancel editing on Escape
+
+1.13 Configuration
+1.13.1 Global Configuration
+
+REQ-CONFIG-001: The system SHALL use module-based sizing (8px base unit)
+REQ-CONFIG-002: The system SHALL support configurable grid spacing and appearance
+REQ-CONFIG-003: The system SHALL define allowed CSS properties for dynamic styling
+REQ-CONFIG-004: The system SHALL provide configurable zoom limits
