@@ -1,0 +1,23 @@
+{
+  "core": {
+    "description": "Core nodes and handlers for basic workflows",
+    "nodes": [
+      "nodes/StartNode.js",
+      "nodes/EndNode.js",
+      "nodes/TaskNode.js",
+      "nodes/DecisionNode.js"
+    ],
+    "handlers": [
+      "handlers/StandardHandler.js"
+    ],
+    "connections": [
+      "connections/DefaultConnection.js"
+    ],
+    "strategies": [
+      "strategies/SequentialStrategy.js"
+    ],
+    "styles": [
+      "styles/core.css"
+    ]
+  }
+}

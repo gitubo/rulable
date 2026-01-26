@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diagram Editor Widget - Example</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+    }
+    
+    header {
+      background: white;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    h1 {
+      font-size: 24px;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    
+    .controls {
+      background: white;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    button.primary {
+      background: #0066cc;
+      color: white;
+    }
+    
+    button.primary:hover {
+      background: #0052a3;
+    }
+    
+    button.secondary {
+      background: #f0f0f0;
+      color: #333;
+    }
+    
+    button.secondary:hover {
+      background: #e0e0e0;
+    }
+    
+    #diagram-container {
+      background: white;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      overflow: hidden;
+    }
+    
+    .event-log {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 20px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .event-log h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      color: #333;
+    }
+    
+    .event-item {
+      padding: 8px 12px;
+      margin-bottom: 8px;
+      background: #f5f5f5;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #666;
+    }
+    
+    .event-item.error {
+      background: #ffebee;
+      color: #c62828;
+    }
+    
+    .event-item.success {
+      background: #e8f5e9;
+      color: #2e7d32;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📊 Diagram Editor Widget - Interactive Example</h1>
+  </header>
+  
+  <div class="container">
+    <div class="controls">
+      <button class="primary" onclick="createStartNode()">
+        ▶️ Create Start Node
+      </button>
+      <button class="primary" onclick="createTaskNode()">
+        ✓ Create Task Node
+      </button>
+      <button class="primary" onclick="createDecisionNode()">
+        ◆ Create Decision Node
+      </button>
+      <button class="primary" onclick="createEndNode()">
+        ⏹️ Create End Node
+      </button>
+      
+      <button class="secondary" onclick="createWorkflow()">
+        🔗 Create Sample Workflow
+      </button>
+      
+      <button class="secondary" onclick="executeWorkflow()">
+        🚀 Execute Workflow
+      </button>
+      
+      <button class="secondary" onclick="exportGraph()">
+        💾 Export JSON
+      </button>
+      
+      <button class="secondary" onclick="clearGraph()">
+        🗑️ Clear All
+      </button>
+    </div>
+    
+    <div id="diagram-container"></div>
+    
+    <div class="event-log">
+      <h3>📋 Event Log</h3>
+      <div id="event-list"></div>
+    </div>
+  </div>
+  
+  <script type="module">
+    import { DAGWidget } from './dist/index.js';
+    
+    // Initialize widget
+    window.widget = new DAGWidget({
+      container: '#diagram-container',
+      width: '100%',
+      height: '600px',
+      manifestUrl: '/plugins/manifest.json',
+      showDefaultUI: true,
+      initialZoom: 1,
+      initialOffset: { x: 50, y: 50 }
+    });
+    
+    // Subscribe to events and log them
+    let eventCount = 0;
+    window.widget.subscribe((payload) => {
+      logEvent(payload);
+    });
+    
+    function logEvent(payload) {
+      eventCount++;
+      const eventList = document.getElementById('event-list');
+      const item = document.createElement('div');
+      item.className = 'event-item';
+      
+      // Determine event class
+      if (payload && payload.type) {
+        if (payload.type.includes('ERROR')) {
+          item.classList.add('error');
+        } else if (payload.type.includes('COMPLETED') || payload.type.includes('CREATED')) {
+          item.classList.add('success');
+        }
+      }
+      
+      const timestamp = new Date().toLocaleTimeString();
+      const eventType = typeof payload === 'object' && payload !== null 
+        ? (payload.type || 'UNKNOWN')
+        : 'EVENT';
+      
+      item.textContent = `[${timestamp}] ${eventType}`;
+      
+      eventList.insertBefore(item, eventList.firstChild);
+      
+      // Limit to 20 events
+      if (eventList.children.length > 20) {
+        eventList.removeChild(eventList.lastChild);
+      }
+    }
+    
+    // Helper functions for button actions
+    window.createStartNode = () => {
+      widget.api.commands.createNode({
+        type: 'start',
+        x: 100 + Math.random() * 200,
+        y: 100 + Math.random() * 200,
+        label: 'Start'
+      });
+    };
+    
+    window.createTaskNode = () => {
+      widget.api.commands.createNode({
+        type: 'task',
+        x: 100 + Math.random() * 400,
+        y: 100 + Math.random() * 300,
+        label: 'Task ' + Math.floor(Math.random() * 100),
+        data: {
+          timeout: 5000,
+          retries: 3,
+          mode: 'async'
+        }
+      });
+    };
+    
+    window.createDecisionNode = () => {
+      widget.api.commands.createNode({
+        type: 'decision',
+        x: 100 + Math.random() * 400,
+        y: 100 + Math.random() * 300,
+        label: 'Decision?',
+        data: {
+          condition: 'value > 0',
+          operator: 'greater_than'
+        }
+      });
+    };
+    
+    window.createEndNode = () => {
+      widget.api.commands.createNode({
+        type: 'end',
+        x: 100 + Math.random() * 200,
+        y: 300 + Math.random() * 100,
+        label: 'End'
+      });
+    };
+    
+    window.createWorkflow = () => {
+      // Create a complete workflow
+      widget.api.commands.createNode({
+        type: 'start',
+        x: 150,
+        y: 200,
+        label: 'Start Workflow'
+      });
+      
+      setTimeout(() => {
+        widget.api.commands.createNode({
+          type: 'task',
+          x: 350,
+          y: 200,
+          label: 'Process Data',
+          data: {
+            timeout: 10000,
+            retries: 5,
+            mode: 'async'
+          }
+        });
+      }, 100);
+      
+      setTimeout(() => {
+        widget.api.commands.createNode({
+          type: 'decision',
+          x: 550,
+          y: 200,
+          label: 'Success?',
+          data: {
+            condition: 'status === "ok"',
+            operator: 'equals'
+          }
+        });
+      }, 200);
+      
+      setTimeout(() => {
+        widget.api.commands.createNode({
+          type: 'end',
+          x: 750,
+          y: 200,
+          label: 'Complete'
+        });
+      }, 300);
+    };
+    
+    window.executeWorkflow = async () => {
+      try {
+        await widget.api.commands.traverseDiagram({
+          strategy: 'sequential'
+        });
+        
+        setTimeout(() => {
+          alert('Workflow execution completed! Check the console for detailed results.');
+        }, 500);
+      } catch (error) {
+        alert('Workflow execution failed: ' + error.message);
+      }
+    };
+    
+    window.exportGraph = () => {
+      const state = widget.api.queries.getGraphData();
+      const json = JSON.stringify(state, null, 2);
+      
+      // Create download
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'diagram-export.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      
+      console.log('Exported state:', state);
+    };
+    
+    window.clearGraph = () => {
+      if (confirm('Clear all nodes and connections?')) {
+        const nodes = widget.api.queries.getAllNodesDefinition();
+        // Note: In production, you'd iterate through actual node instances
+        // This is a simplified example
+        window.location.reload();
+      }
+    };
+    
+    // Log initial state
+    console.log('Widget initialized:', widget);
+    console.log('API available:', widget.api);
+  </script>
+</body>
+</html>

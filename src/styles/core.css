@@ -193,25 +193,173 @@ svg:active {
 }
 
 /* ========== Plugin-Specific Styles ========== */
-/* Node type colors - can be overridden by plugins */
+/**
+ * Core plugin styles for default node types.
+ * Provides visual differentiation by node role.
+ */
+
+/* ========== Start Node ========== */
 .node[data-node-type="start"] .node-body {
   fill: #e8f5e9;
   stroke: #4caf50;
+  stroke-width: 2px;
 }
 
+.node[data-node-type="start"]:hover .node-body {
+  fill: #c8e6c9;
+}
+
+.node[data-node-type="start"] .node-icon {
+  color: #2e7d32;
+}
+
+/* ========== End Node ========== */
 .node[data-node-type="end"] .node-body {
   fill: #ffebee;
   stroke: #f44336;
+  stroke-width: 2px;
 }
 
+.node[data-node-type="end"]:hover .node-body {
+  fill: #ffcdd2;
+}
+
+.node[data-node-type="end"] .node-icon {
+  color: #c62828;
+}
+
+/* ========== Task Node ========== */
 .node[data-node-type="task"] .node-body {
   fill: #e3f2fd;
   stroke: #2196f3;
+  stroke-width: 2px;
 }
 
+.node[data-node-type="task"]:hover .node-body {
+  fill: #bbdefb;
+}
+
+.node[data-node-type="task"] .node-icon {
+  color: #1565c0;
+}
+
+/* ========== Decision Node ========== */
 .node[data-node-type="decision"] .node-body {
   fill: #fff3e0;
   stroke: #ff9800;
+  stroke-width: 2px;
+}
+
+.node[data-node-type="decision"]:hover .node-body {
+  fill: #ffe0b2;
+}
+
+.node[data-node-type="decision"] .node-icon {
+  color: #e65100;
+}
+
+/* ========== Handler Flow Type Colors ========== */
+.handler[data-flow="in"] .handler-shape {
+  fill: #ffffff;
+  stroke: #4caf50;
+  stroke-width: 2px;
+}
+
+.handler[data-flow="in"]:hover .handler-shape {
+  fill: #4caf50;
+  stroke: #2e7d32;
+}
+
+.handler[data-flow="out"] .handler-shape {
+  fill: #ffffff;
+  stroke: #2196f3;
+  stroke-width: 2px;
+}
+
+.handler[data-flow="out"]:hover .handler-shape {
+  fill: #2196f3;
+  stroke: #1565c0;
+}
+
+.handler[data-flow="bi"] .handler-shape {
+  fill: #ffffff;
+  stroke: #9c27b0;
+  stroke-width: 2px;
+}
+
+.handler[data-flow="bi"]:hover .handler-shape {
+  fill: #9c27b0;
+  stroke: #6a1b9a;
+}
+
+.handler[data-flow="any"] .handler-shape {
+  fill: #ffffff;
+  stroke: #ff9800;
+  stroke-width: 2px;
+}
+
+.handler[data-flow="any"]:hover .handler-shape {
+  fill: #ff9800;
+  stroke: #e65100;
+}
+
+/* ========== Connection Types ========== */
+.connection[data-connection-type="default"] .connection-path {
+  stroke: #666666;
+  stroke-width: 2px;
+}
+
+.connection[data-connection-type="emphasized"] .connection-path {
+  stroke: #0066cc;
+  stroke-width: 3px;
+}
+
+/* ========== Selection States ========== */
+.node-body.selected {
+  filter: drop-shadow(0 0 8px rgba(0, 102, 204, 0.6));
+}
+
+.connection-path.selected {
+  filter: drop-shadow(0 0 4px rgba(0, 102, 204, 0.6));
+}
+
+/* ========== Animations ========== */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.node[data-node-type="start"] .node-body,
+.node[data-node-type="end"] .node-body {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Disable animation when selected or hovered */
+.node:hover .node-body,
+.node-body.selected {
+  animation: none;
+}
+
+/* ========== Accessibility ========== */
+.node:focus-visible .node-body,
+.handler:focus-visible .handler-shape {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+}
+
+/* ========== Print Styles ========== */
+@media print {
+  .node .node-body {
+    animation: none;
+  }
+  
+  .handler .handler-shape {
+    fill: #ffffff;
+  }
 }
 
 /* ========== Accessibility ========== */
