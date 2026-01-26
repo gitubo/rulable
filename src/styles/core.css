@@ -1,0 +1,244 @@
+/**
+ * Core styles for diagram rendering (SVG nodes, links, grid).
+ * Applied to the SVG canvas and graph elements.
+ */
+
+/* ========== SVG Canvas ========== */
+svg {
+  width: 100%;
+  height: 100%;
+  user-select: none;
+  cursor: grab;
+}
+
+svg:active {
+  cursor: grabbing;
+}
+
+/* ========== Grid Layer ========== */
+.grid-layer {
+  pointer-events: none;
+}
+
+.grid-background {
+  fill: url(#grid-pattern);
+}
+
+/* ========== Nodes ========== */
+.node {
+  cursor: move;
+}
+
+.node-body {
+  fill: #ffffff;
+  stroke: #333333;
+  stroke-width: 2px;
+  transition: stroke 0.2s ease, filter 0.2s ease;
+}
+
+.node-body:hover {
+  filter: brightness(0.98);
+}
+
+.node-body.selected {
+  stroke: #0066cc;
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 8px rgba(0, 102, 204, 0.6));
+}
+
+.node-label {
+  fill: #333;
+  font-size: 14px;
+  font-family: 'Inter', system-ui, sans-serif;
+  font-weight: 500;
+  pointer-events: none;
+  user-select: none;
+}
+
+.node-icon {
+  pointer-events: none;
+}
+
+/* ========== Handlers ========== */
+.handler {
+  cursor: crosshair;
+  transition: transform 0.2s ease;
+}
+
+.handler:hover {
+  transform: scale(1.2);
+}
+
+.handler-shape {
+  fill: #ffffff;
+  stroke: #666666;
+  stroke-width: 2px;
+  transition: fill 0.2s ease, stroke 0.2s ease;
+}
+
+.handler:hover .handler-shape {
+  fill: #0066cc;
+  stroke: #0052a3;
+}
+
+.handler-hitarea {
+  fill: transparent;
+  cursor: crosshair;
+}
+
+/* Handler flow type colors */
+.handler[data-flow="in"] .handler-shape {
+  stroke: #4caf50;
+}
+
+.handler[data-flow="out"] .handler-shape {
+  stroke: #2196f3;
+}
+
+.handler[data-flow="bi"] .handler-shape {
+  stroke: #9c27b0;
+}
+
+.handler[data-flow="any"] .handler-shape {
+  stroke: #ff9800;
+}
+
+/* ========== Connections ========== */
+.connection {
+  pointer-events: stroke;
+}
+
+.connection-hitarea {
+  stroke: transparent;
+  stroke-width: 10px;
+  fill: none;
+  cursor: pointer;
+}
+
+.connection-path {
+  fill: none;
+  stroke: #666666;
+  stroke-width: 2px;
+  pointer-events: none;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+.connection:hover .connection-path {
+  stroke: #333333;
+}
+
+.connection-path.selected {
+  stroke: #0066cc;
+  stroke-width: 3px;
+  filter: drop-shadow(0 0 4px rgba(0, 102, 204, 0.6));
+}
+
+.connection-label {
+  pointer-events: none;
+}
+
+.label-background {
+  fill: #ffffff;
+  stroke: #cccccc;
+  stroke-width: 1px;
+}
+
+.label-text {
+  fill: #333333;
+  font-size: 12px;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ========== Ghost Connection ========== */
+.ghost-connection {
+  pointer-events: none;
+}
+
+.ghost-path {
+  stroke: #999999;
+  stroke-width: 2px;
+  stroke-dasharray: 5, 5;
+  fill: none;
+  opacity: 0.6;
+  animation: dash 0.5s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -10;
+  }
+}
+
+/* ========== Notes ========== */
+.note {
+  cursor: move;
+}
+
+.note-body {
+  fill: #fffde7;
+  stroke: #fbc02d;
+  stroke-width: 1px;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.1));
+}
+
+.note-text {
+  fill: #333;
+  font-size: 12px;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ========== Overlay Layer ========== */
+.overlay-layer {
+  pointer-events: none;
+}
+
+/* ========== Plugin-Specific Styles ========== */
+/* Node type colors - can be overridden by plugins */
+.node[data-node-type="start"] .node-body {
+  fill: #e8f5e9;
+  stroke: #4caf50;
+}
+
+.node[data-node-type="end"] .node-body {
+  fill: #ffebee;
+  stroke: #f44336;
+}
+
+.node[data-node-type="task"] .node-body {
+  fill: #e3f2fd;
+  stroke: #2196f3;
+}
+
+.node[data-node-type="decision"] .node-body {
+  fill: #fff3e0;
+  stroke: #ff9800;
+}
+
+/* ========== Accessibility ========== */
+.node:focus-visible,
+.handler:focus-visible,
+.connection:focus-visible {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+}
+
+/* ========== Performance Optimizations ========== */
+.nodes-layer,
+.links-layer {
+  will-change: transform;
+}
+
+/* ========== Print Styles ========== */
+@media print {
+  svg {
+    cursor: default;
+  }
+  
+  .grid-layer {
+    display: none;
+  }
+  
+  .overlay-layer {
+    display: none;
+  }
+}
