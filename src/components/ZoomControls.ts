@@ -98,7 +98,7 @@ export class ZoomControls {
   }
   
   private subscribeToEvents(): void {
-    this.eventBus.on('HISTORY_CHANGED', (status) => {
+    this.eventBus.on('HISTORY_CHANGED', (status: { canUndo: boolean; canRedo: boolean }) => {
       this.canUndo = status.canUndo;
       this.canRedo = status.canRedo;
       this.updateButtonStates();

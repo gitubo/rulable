@@ -74,5 +74,7 @@ export interface EventPayloadMap {
   NOTE_REMOVED: NoteId;
 }
 
-export type EventCallback<T extends EventType> = (payload: EventPayloadMap[T]) => void;
+export type EventCallback<T extends EventType> = T extends keyof EventPayloadMap 
+  ? (payload: EventPayloadMap[T]) => void 
+  : never;
 export type UnsubscribeFn = () => void;

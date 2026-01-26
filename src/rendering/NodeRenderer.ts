@@ -250,8 +250,8 @@ export class NodeRenderer {
       
       group.select('.node-body')
         .classed('selected', isSelected)
-        .style('stroke', isSelected ? Config.SELECTION_COLOR : null)
-        .style('stroke-width', isSelected ? 3 : null);
+        .style('stroke', isSelected ? Config.SELECTION_COLOR : (node.style.stroke || Config.DEFAULT_NODE_STROKE))
+        .style('stroke-width', isSelected ? '3' : (node.style.strokeWidth?.toString() || '2'));
     });
   }
 }

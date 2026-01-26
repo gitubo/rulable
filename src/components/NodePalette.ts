@@ -109,7 +109,7 @@ export class NodePalette {
     
     // Initialize all role groups
     Object.values(NodeRole).forEach(role => {
-      groups[role] = this.registry.getNodesByRole(role);
+        groups[role as string] = this.registry.getNodesByRole(role);
     });
     
     return groups;
@@ -134,16 +134,15 @@ export class NodePalette {
   private attachEventListeners(): void {
     this.container.querySelectorAll('.palette-node').forEach(el => {
       // Drag start - store node type
-      el.addEventListener('dragstart', (e) => {
+      el.addEventListener('dragstart', (e: DragEvent) => {
         const nodeType = (e.currentTarget as HTMLElement).getAttribute('data-node-type');
         if (nodeType && e.dataTransfer) {
-          e.dataTransfer.setData('application/node-type', nodeType);
-          e.dataTransfer.effectAllowed = 'copy';
-          
-          // Add visual feedback
-          (e.currentTarget as HTMLElement).classList.add('dragging');
+            e.dataTransfer.setData('application/node-type', nodeType);
+            e.dataTransfer.effectAllowed = 'copy';
+            
+            (e.currentTarget as HTMLElement).classList.add('dragging');
         }
-      });
+        });
       
       el.addEventListener('dragend', (e) => {
         (e.currentTarget as HTMLElement).classList.remove('dragging');

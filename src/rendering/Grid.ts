@@ -105,11 +105,11 @@ export class Grid {
     }
   }
   
-  /**
-   * Shows or hides the grid.
-   * @param visible - Whether grid should be visible
-   */
-  setVisible(visible: boolean): void {
-    this.gridGroup.style('display', visible ? null : 'none');
-  }
+    /**
+     * Shows or hides the grid.
+     * @param visible - Whether grid should be visible
+     */
+    setVisible(visible: boolean): void {
+    this.gridGroup.style('display', visible ? 'block' : 'none');
+    }
 }

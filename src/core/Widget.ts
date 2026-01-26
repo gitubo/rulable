@@ -56,7 +56,7 @@ export class DAGWidget {
   private inputSystem: InputSystem;
   
   private container: HTMLElement;
-  private svg: SVGSVGElement;
+  private svg!: SVGSVGElement;
   
   private ui?: {
     zoomControls: ZoomControls;

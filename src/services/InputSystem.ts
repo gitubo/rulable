@@ -270,14 +270,14 @@ export class InputSystem {
    * @param selectionManager - Selection manager
    * @param renderEngine - Render engine
    */
-  constructor(
+    constructor(
     svgElement: SVGSVGElement,
     store: Store,
     registry: Registry,
     eventBus: EventBus,
     selectionManager: SelectionManager,
     renderEngine: RenderEngine
-  ) {
+    ) {
     this.svg = d3.select(svgElement);
     this.store = store;
     this.registry = registry;
@@ -288,9 +288,10 @@ export class InputSystem {
     this.currentState = new IdleState(this);
     this.inlineEditor = new InlineEditor(svgElement.parentElement!);
     
+    this.zoom = d3.zoom<SVGSVGElement, unknown>(); // Initialize here
     this.initializeZoom();
     this.attachEvents();
-  }
+    }
   
   /**
    * Initializes D3 zoom behavior for pan and zoom.

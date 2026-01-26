@@ -2,7 +2,7 @@
  * Plugin system interfaces and contract definitions.
  */
 
-import { NodeRole, FlowType, Dimensions, NodeStyle, ConnectionPathType, ConnectionData, NodeInstance, ConnectionInstance } from './index';
+import { NodeRole, FlowType, Dimensions, NodeStyle, ConnectionPathType, ConnectionData, NodeInstance, ConnectionInstance } from './graph.types';
 
 export interface PluginDefinition<T = unknown> {
   readonly type: string;
