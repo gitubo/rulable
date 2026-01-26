@@ -123,10 +123,7 @@ class NodeDragState extends InteractionState {
     
     // Commit to history if moved
     if (this.hasMoved) {
-      this.context.eventBus.emit('HISTORY_CHANGED', {
-        canUndo: true,
-        canRedo: false
-      });
+      this.context.eventBus.emit('HISTORY_SAVE_REQUESTED', undefined);
     }
   }
   
@@ -361,11 +358,12 @@ export class InputSystem {
       event.preventDefault();
       if (event.shiftKey) {
         // Redo
-        this.eventBus.emit('RENDER_REQUESTED', undefined);
+        this.eventBus.emit('HISTORY_REDO_REQUESTED', undefined);
       } else {
         // Undo
-        this.eventBus.emit('RENDER_REQUESTED', undefined);
+        this.eventBus.emit('HISTORY_UNDO_REQUESTED', undefined);
       }
+      return;
     }
     
     // Delete key
@@ -375,10 +373,13 @@ export class InputSystem {
         event.preventDefault();
         if (selection.type === 'node') {
           this.store.removeNode(selection.id as NodeId);
+          this.eventBus.emit('HISTORY_SAVE_REQUESTED', undefined);
         } else if (selection.type === 'link') {
           this.store.removeLink(selection.id as any);
+          this.eventBus.emit('HISTORY_SAVE_REQUESTED', undefined);
         }
       }
+      return;
     }
     
     this.currentState.onKeyDown(event);

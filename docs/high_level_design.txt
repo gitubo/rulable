@@ -255,7 +255,7 @@ Cache invalidation only on structural changes
 4.3 Event System
 Responsibility: Decoupled communication, event propagation, subscription management
 Key Interfaces:
-typescripttype EventType = 
+export type EventType = 
   | 'NODE_CREATED'
   | 'NODE_UPDATED'
   | 'NODE_REMOVED'
@@ -265,10 +265,17 @@ typescripttype EventType =
   | 'CONNECTION_REMOVED'
   | 'SELECTION_CHANGED'
   | 'HISTORY_CHANGED'
+  | 'HISTORY_SAVE_REQUESTED'
+  | 'HISTORY_UNDO_REQUESTED'
+  | 'HISTORY_REDO_REQUESTED'
   | 'STATE_LOADED'
   | 'PLUGINS_LOADED'
   | 'TRAVERSE_COMPLETED'
-  | 'TRAVERSE_ERROR';
+  | 'TRAVERSE_ERROR'
+  | 'RENDER_REQUESTED'
+  | 'NOTE_CREATED'
+  | 'NOTE_UPDATED'
+  | 'NOTE_REMOVED';
 
 interface EventPayload {
   NODE_CREATED: NodeInstance;
