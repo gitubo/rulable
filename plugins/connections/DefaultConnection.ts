@@ -5,6 +5,15 @@
 export class DefaultConnection {
   static type = 'default';
   
+  id: string;
+  type: string;
+  sourceHandlerId: string;
+  targetHandlerId: string;
+  pathType: string;
+  style: { stroke: string; strokeWidth: number };
+  data: Record<string, unknown>;
+  label?: any;
+  
   constructor() {
     this.id = '';
     this.type = 'default';
@@ -41,6 +50,15 @@ export class DefaultConnection {
  */
 export class EmphasizedConnection {
   static type = 'emphasized';
+  
+  id: string;
+  type: string;
+  sourceHandlerId: string;
+  targetHandlerId: string;
+  pathType: string;
+  style: { stroke: string; strokeWidth: number };
+  data: Record<string, unknown>;
+  label?: any;
   
   constructor() {
     this.id = '';

@@ -52,7 +52,7 @@ export class NodeRenderer {
     // Create node structure for new elements
     enterGroups.each((d, i, nodes) => {
       const group = d3.select(nodes[i]);
-      this.createNodeStructure(group, d);
+      this.createNodeStructure(group as any, d);
     });
     
     // UPDATE: Merge enter + update selections
@@ -64,11 +64,11 @@ export class NodeRenderer {
     // Update content
     allGroups.each((d, i, nodes) => {
       const group = d3.select(nodes[i]);
-      this.updateNodeContent(group, d);
+      this.updateNodeContent(group as any, d);
     });
     
     // Update selection styles
-    this.updateSelectionStyles(allGroups);
+    this.updateSelectionStyles(allGroups as any);
   }
   
   private createNodeStructure(
@@ -250,8 +250,8 @@ export class NodeRenderer {
       
       group.select('.node-body')
         .classed('selected', isSelected)
-        .style('stroke', isSelected ? Config.SELECTION_COLOR : (node.style.stroke || Config.DEFAULT_NODE_STROKE))
-        .style('stroke-width', isSelected ? '3' : (node.style.strokeWidth?.toString() || '2'));
+        .style('stroke', isSelected ? Config.SELECTION_COLOR : (d.style.stroke || Config.DEFAULT_NODE_STROKE))
+        .style('stroke-width', isSelected ? '3' : (d.style.strokeWidth?.toString() || '2'));
     });
   }
 }

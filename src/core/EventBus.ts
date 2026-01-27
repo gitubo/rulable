@@ -39,21 +39,21 @@ export class EventBus {
     }
   }
   
-  emit<T extends EventType>(
-    event: T, 
-    payload: EventPayloadMap[T]
-  ): void {
-    const callbacks = this.listeners.get(event);
-    if (callbacks) {
-      callbacks.forEach(callback => {
-        try {
-          callback(payload);
-        } catch (error) {
-          console.error(`Error in event handler for ${event}:`, error);
-        }
-      });
-    }
+emit<T extends EventType>(
+  event: T, 
+  payload: T extends keyof EventPayloadMap ? EventPayloadMap[T] : never
+): void {
+  const callbacks = this.listeners.get(event);
+  if (callbacks) {
+    callbacks.forEach(callback => {
+      try {
+        callback(payload as any);  // Add type assertion
+      } catch (error) {
+        console.error(`Error in event handler for ${event}:`, error);
+      }
+    });
   }
+}
   
   clear(): void {
     this.listeners.clear();

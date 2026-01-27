@@ -481,7 +481,7 @@ export class PluginLoader {
       };
       
     } catch (error) {
-      errors.push(`Failed to validate manifest: ${error.message}`);
+      errors.push(`Failed to validate manifest: ${(error as Error).message}`);
       return { valid: false, errors, warnings, bundles };
     }
   }

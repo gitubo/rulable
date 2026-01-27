@@ -234,21 +234,21 @@ export class Store {
    * @throws {TypeError} If node is null/undefined
    */
   addNode(node: Node): void {
-    if (!node) {
-      throw new TypeError('Cannot add null or undefined node');
-    }
-    
-    try {
-      this.state.nodes.push(node as any);
-      this.rebuildNodeToLinksCache();
-      this.updateHandlerPositionCache(node);
-      this.eventBus.emit('NODE_CREATED', node as any);
-      this.eventBus.emit('RENDER_REQUESTED', undefined);
-    } catch (error) {
-      console.error('[Store] Error adding node:', error);
-      throw error;
-    }
+  if (!node) {
+    throw new TypeError('Cannot add null or undefined node');
   }
+  
+  try {
+    (this.state.nodes as any[]).push(node as any);  // Cast to mutable
+    this.rebuildNodeToLinksCache();
+    this.updateHandlerPositionCache(node);
+    this.eventBus.emit('NODE_CREATED', node as any);
+    this.eventBus.emit('RENDER_REQUESTED', undefined);
+  } catch (error) {
+    console.error('[Store] Error adding node:', error);
+    throw error;
+  }
+}
   
   /**
    * Removes a node from the graph.
@@ -257,29 +257,29 @@ export class Store {
    * @param id - Node identifier
    */
   removeNode(id: NodeId): void {
-    try {
-      const index = this.state.nodes.findIndex(n => n.id === id);
-      if (index === -1) {
-        console.warn(`[Store] Cannot remove node ${id}: not found`);
-        return;
-      }
-      
-      const node = this.state.nodes[index];
-      
-      // Remove connected links
-      const connectedLinks = this.getLinksForNode(id);
-      connectedLinks.forEach(link => this.removeLink(link.id));
-      
-      this.state.nodes.splice(index, 1);
-      this.rebuildNodeToLinksCache();
-      this.removeHandlerPositionsForNode(node);
-      
-      this.eventBus.emit('NODE_REMOVED', id);
-      this.eventBus.emit('RENDER_REQUESTED', undefined);
-    } catch (error) {
-      console.error(`[Store] Error removing node ${id}:`, error);
+  try {
+    const index = (this.state.nodes as any[]).findIndex(n => n.id === id);
+    if (index === -1) {
+      console.warn(`[Store] Cannot remove node ${id}: not found`);
+      return;
     }
+    
+    const node = this.state.nodes[index];
+    
+    // Remove connected links
+    const connectedLinks = this.getLinksForNode(id);
+    connectedLinks.forEach(link => this.removeLink(link.id));
+    
+    (this.state.nodes as any[]).splice(index, 1);
+    this.rebuildNodeToLinksCache();
+    this.removeHandlerPositionsForNode(node);
+    
+    this.eventBus.emit('NODE_REMOVED', id);
+    this.eventBus.emit('RENDER_REQUESTED', undefined);
+  } catch (error) {
+    console.error(`[Store] Error removing node ${id}:`, error);
   }
+}
   
   /**
    * Updates node properties.

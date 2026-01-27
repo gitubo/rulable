@@ -9,7 +9,7 @@ import { EventBus } from '../core/EventBus';
 import { SelectionManager } from '../core/SelectionManager';
 import { RenderEngine } from '../rendering/RenderEngine';
 import { InlineEditor } from '../components/InlineEditor';
-import { Position, NodeId, HandlerId, Transform } from '../core/types';
+import { Position, NodeId, HandlerId, Transform, createHandlerId } from '../core/types';
 import { CoordinateTransform } from '../utils/CoordinateTransform';
 import { Config } from '../core/Config';
 
@@ -50,7 +50,7 @@ class IdleState extends InteractionState {
     if (handlerElement && event.button === 0) {
       // Start connection creation
       const handlerId = handlerElement.getAttribute('data-handler-id')!;
-      this.context.setState(new ConnectionCreationState(this.context, handlerId));
+      this.context.setState(new ConnectionCreationState(this.context, createHandlerId(handlerId)));
       return;
     }
     

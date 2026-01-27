@@ -309,7 +309,7 @@ export class DAGWidget {
    * @returns Unsubscribe function
    */
   subscribe<T extends EventType>(callback: EventCallback<T>): UnsubscribeFn {
-    const unsubscribers: UnsubscribeFn[] = [];
+    const unsubscribers: (() => void)[] = [];
     
     const eventTypes: EventType[] = [
       'NODE_CREATED', 'NODE_UPDATED', 'NODE_REMOVED', 'NODE_MOVED',

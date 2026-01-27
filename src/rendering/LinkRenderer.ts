@@ -49,7 +49,7 @@ export class LinkRenderer {
     // Create link structure
     enterGroups.each((d, i, elements) => {
       const group = d3.select(elements[i]);
-      this.createLinkStructure(group);
+      this.createLinkStructure(group as any);
     });
     
     // UPDATE
@@ -57,11 +57,11 @@ export class LinkRenderer {
     
     allGroups.each((d, i, elements) => {
       const group = d3.select(elements[i]);
-      this.updateLinkContent(group, d, nodes as Node[], handlerPositions);
+      this.updateLinkContent(group as any, d, nodes as Node[], handlerPositions);
     });
     
     // Update selection styles
-    this.updateSelectionStyles(allGroups);
+    this.updateSelectionStyles(allGroups as any);
   }
   
   renderGhost(

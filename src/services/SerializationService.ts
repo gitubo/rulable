@@ -569,7 +569,7 @@ export class SerializationService {
           console.log(`[SerializationService] Loaded from ${file.name}`);
           resolve(state);
         } catch (error) {
-          reject(new DeserializationError(`Failed to load file: ${error.message}`));
+          reject(new DeserializationError(`Failed to load file: ${(error as Error).message}`));
         }
       };
       

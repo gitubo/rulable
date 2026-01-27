@@ -2,7 +2,8 @@
  * Plugin system interfaces and contract definitions.
  */
 
-import { NodeRole, FlowType, Dimensions, NodeStyle, ConnectionPathType, ConnectionData, NodeInstance, ConnectionInstance } from './graph.types';
+import { NodeRole, FlowType, Dimensions } from './graph.types';
+import type { NodeInstance, ConnectionInstance, ConnectionData } from './api.types';
 
 export interface PluginDefinition<T = unknown> {
   readonly type: string;
@@ -27,9 +28,6 @@ export interface NodePluginDefinition extends PluginDefinition {
   getShapeTemplate(): string;
   getShapeAttributes?(): Record<string, unknown> | null;
   schema?: PropertySchema;
-  
-  // Static factory for deserialization usually lives on the class,
-  // but defined here for interface compliance
 }
 
 export interface HandlerPluginDefinition extends PluginDefinition {

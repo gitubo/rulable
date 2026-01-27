@@ -89,9 +89,9 @@ export interface LinkLabel {
 }
 
 // Top Level State
-export interface GraphState {
-  readonly nodes: ReadonlyArray<any>; // Typed as NodeInstance in usage
-  readonly links: ReadonlyArray<any>; // Typed as ConnectionInstance in usage
-  readonly notes: ReadonlyArray<any>; // Typed as NoteInstance in usage
+interface GraphState {
+  nodes: any[];  // Remove readonly for internal mutations
+  links: any[];
+  notes: any[];
   readonly transform: Readonly<Transform>;
 }

@@ -5,24 +5,12 @@
 export class SequentialStrategy {
   static type = 'sequential';
   
-  /**
-   * Sorts nodes in topological order (dependencies first).
-   * Uses depth-first search with cycle detection.
-   * 
-   * @param nodes - All nodes in graph
-   * @param links - All connections in graph
-   * @returns Sorted node array
-   * @throws Error if cycle is detected
-   */
-  sortNodes(nodes, links) {
-    const sorted = [];
+  sortNodes(nodes: any[], links: any[]): any[] {
+    const sorted: any[] = [];
     const visited = new Set();
     const temp = new Set();
     
-    /**
-     * Recursive DFS visit function.
-     */
-    const visit = (node) => {
+    const visit = (node: any): void => {
       if (temp.has(node.id)) {
         throw new Error('Cycle detected in graph - cannot execute sequential strategy');
       }
@@ -33,18 +21,16 @@ export class SequentialStrategy {
       
       temp.add(node.id);
       
-      // Find all outgoing connections from this node
-      const outgoing = links.filter(link => {
-        const sourceNode = nodes.find(n => 
-          n.handlers.some(h => h.id === link.sourceHandlerId)
+      const outgoing = links.filter((link: any) => {
+        const sourceNode = nodes.find((n: any) => 
+          n.handlers.some((h: any) => h.id === link.sourceHandlerId)
         );
         return sourceNode && sourceNode.id === node.id;
       });
       
-      // Visit all target nodes (dependencies)
-      outgoing.forEach(link => {
-        const targetNode = nodes.find(n => 
-          n.handlers.some(h => h.id === link.targetHandlerId)
+      outgoing.forEach((link: any) => {
+        const targetNode = nodes.find((n: any) => 
+          n.handlers.some((h: any) => h.id === link.targetHandlerId)
         );
         if (targetNode) {
           visit(targetNode);
@@ -53,28 +39,24 @@ export class SequentialStrategy {
       
       temp.delete(node.id);
       visited.add(node.id);
-      sorted.unshift(node); // Add to front (reverse topological order)
+      sorted.unshift(node);
     };
     
-    // Find start nodes (nodes with no incoming connections)
-    const startNodes = nodes.filter(node => {
-      const hasIncoming = links.some(link => {
-        return node.handlers.some(h => h.id === link.targetHandlerId);
+    const startNodes = nodes.filter((node: any) => {
+      const hasIncoming = links.some((link: any) => {
+        return node.handlers.some((h: any) => h.id === link.targetHandlerId);
       });
       return !hasIncoming;
     });
     
-    // If no start nodes found, start with first node
     if (startNodes.length === 0 && nodes.length > 0) {
       console.warn('[SequentialStrategy] No start nodes found, using first node');
       startNodes.push(nodes[0]);
     }
     
-    // Visit all start nodes
-    startNodes.forEach(node => visit(node));
+    startNodes.forEach((node: any) => visit(node));
     
-    // Visit any remaining unvisited nodes (disconnected components)
-    nodes.forEach(node => {
+    nodes.forEach((node: any) => {
       if (!visited.has(node.id)) {
         visit(node);
       }
@@ -83,10 +65,6 @@ export class SequentialStrategy {
     return sorted;
   }
   
-  /**
-   * Returns visitor functions for each node type.
-   * Visitors process nodes and accumulate results.
-   */
   getVisitors() {
     return {
       'start': this.visitStart.bind(this),
@@ -96,10 +74,6 @@ export class SequentialStrategy {
     };
   }
   
-  /**
-   * Returns initial aggregator state.
-   * Accumulates execution log and results.
-   */
   getInitialAggregator() {
     return {
       executionLog: [],
@@ -113,10 +87,7 @@ export class SequentialStrategy {
     };
   }
   
-  /**
-   * Visits a start node.
-   */
-  visitStart(node, agg, context) {
+  visitStart(node: any, agg: any, context: any): void {
     agg.executionLog.push({
       timestamp: Date.now(),
       nodeId: node.id,
@@ -128,10 +99,7 @@ export class SequentialStrategy {
     console.log(`[SequentialStrategy] Workflow started at node: ${node.label || node.id}`);
   }
   
-  /**
-   * Visits an end node.
-   */
-  visitEnd(node, agg, context) {
+  visitEnd(node: any, agg: any, context: any): void {
     const duration = Date.now() - agg.startTime;
     
     agg.executionLog.push({
@@ -149,21 +117,16 @@ export class SequentialStrategy {
     console.log(`[SequentialStrategy] Workflow completed in ${duration}ms`);
   }
   
-  /**
-   * Visits a task node - simulates task execution.
-   */
-  visitTask(node, agg, context) {
+  visitTask(node: any, agg: any, context: any): void {
     const startTime = Date.now();
     
     try {
-      // Extract configuration from node data
       const timeout = node.data.timeout || 5000;
       const retries = node.data.retries || 3;
       const mode = node.data.mode || 'sync';
       
-      // Simulate task execution
-      const executionTime = Math.random() * 1000; // Random 0-1000ms
-      const success = Math.random() > 0.1; // 90% success rate
+      const executionTime = Math.random() * 1000;
+      const success = Math.random() > 0.1;
       
       agg.executionLog.push({
         timestamp: Date.now(),
@@ -202,7 +165,7 @@ export class SequentialStrategy {
       
       console.log(`[SequentialStrategy] Task executed: ${node.label || node.id} (${success ? 'success' : 'failed'})`);
       
-    } catch (error) {
+    } catch (error: any) {
       agg.errors.push({
         nodeId: node.id,
         message: error.message,
@@ -211,16 +174,12 @@ export class SequentialStrategy {
     }
   }
   
-  /**
-   * Visits a decision node - evaluates condition.
-   */
-  visitDecision(node, agg, context) {
+  visitDecision(node: any, agg: any, context: any): void {
     try {
       const condition = node.data.condition || '';
       const operator = node.data.operator || 'equals';
       
-      // Simulate condition evaluation
-      const result = Math.random() > 0.5; // Random true/false
+      const result = Math.random() > 0.5;
       
       agg.executionLog.push({
         timestamp: Date.now(),
@@ -242,7 +201,7 @@ export class SequentialStrategy {
       
       console.log(`[SequentialStrategy] Decision evaluated: ${node.label || node.id} -> ${result}`);
       
-    } catch (error) {
+    } catch (error: any) {
       agg.errors.push({
         nodeId: node.id,
         message: error.message,

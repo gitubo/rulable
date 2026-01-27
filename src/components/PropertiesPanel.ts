@@ -11,17 +11,6 @@ import { PropertySchema, NodeData, ConnectionData } from '../core/types';
 /**
  * Panel for editing properties of selected graph elements.
  * Renders different forms based on selection type and schema.
- * 
- * @example
- * ```typescript
- * const panel = new PropertiesPanel(
- *   container,
- *   eventBus,
- *   selectionManager,
- *   api,
- *   registry
- * );
- * ```
  */
 export class PropertiesPanel {
   private container: HTMLElement;
@@ -30,15 +19,6 @@ export class PropertiesPanel {
   private api: DiagramAPI;
   private registry: Registry;
   
-  /**
-   * Creates a new PropertiesPanel instance.
-   * 
-   * @param container - HTML element to render panel into
-   * @param eventBus - Event bus for subscribing to changes
-   * @param selectionManager - Selection manager for current selection
-   * @param api - Diagram API for executing updates
-   * @param registry - Plugin registry for accessing schemas
-   */
   constructor(
     container: HTMLElement,
     eventBus: EventBus,
@@ -56,9 +36,6 @@ export class PropertiesPanel {
     this.render();
   }
   
-  /**
-   * Subscribes to selection and update events.
-   */
   private subscribeToEvents(): void {
     this.eventBus.on('SELECTION_CHANGED', () => {
       this.render();
@@ -73,9 +50,6 @@ export class PropertiesPanel {
     });
   }
   
-  /**
-   * Renders the panel based on current selection.
-   */
   private render(): void {
     const selection = this.selectionManager.getSelection();
     
@@ -93,9 +67,6 @@ export class PropertiesPanel {
     }
   }
   
-  /**
-   * Renders empty state when nothing is selected.
-   */
   private renderEmpty(): void {
     this.container.innerHTML = `
       <div class="properties-panel empty">
@@ -109,114 +80,128 @@ export class PropertiesPanel {
     `;
   }
   
-  /**
-   * Renders property form for a selected node.
-   * 
-   * @param nodeId - ID of selected node
-   */
   private renderNodeProperties(nodeId: string): void {
-      const nodeData = this.api.queries.getNode(nodeId as any);
-      if (!nodeData) {
-        this.renderEmpty();
-        return;
-      }
-      
-      const definition = this.registry.getNodeDefinition(nodeData.type);
-      const schema = definition?.schema;
-      
-      let html = '<div class="properties-panel">';
-      html += '<div class="properties-header">Node Properties</div>';
-      html += '<div class="properties-body">';
-      
-      // Basic properties
-      html += `
-        <div class="property-field">
-          <label for="prop-label">Label</label>
-          <input 
-            type="text" 
-            id="prop-label" 
-            value="${this.escapeHtml(nodeData.label)}"
-            placeholder="Node label"
-          />
-        </div>
-        
-        <div class="property-field">
-          <label for="prop-note">Note</label>
-          <textarea 
-            id="prop-note" 
-            rows="3"
-            placeholder="Add a note..."
-          >${this.escapeHtml(nodeData.note)}</textarea>
-        </div>
-      `;
-      
-      // Schema-based properties
-      if (schema && Object.keys(schema).length > 0) {
-        html += '<div class="property-divider"></div>';
-        html += '<div class="property-section-title">Configuration</div>';
-        html += this.renderSchemaFields(schema, nodeData.data);
-      }
-      
-      // Style properties
-      html += '<div class="property-divider"></div>';
-      html += '<div class="property-section-title">Appearance</div>';
-      html += `
-        <div class="property-field">
-          <label for="prop-fill">Fill Color</label>
-          <input 
-            type="color" 
-            id="prop-fill" 
-            value="${nodeData.style.fill || '#ffffff'}"
-          />
-        </div>
-        
-        <div class="property-field">
-          <label for="prop-stroke">Stroke Color</label>
-          <input 
-            type="color" 
-            id="prop-stroke" 
-            value="${nodeData.style.stroke || '#333333'}"
-          />
-        </div>
-      `;
-      
-      // Actions
-      html += `
-        <div class="property-divider"></div>
-        <div class="property-actions">
-          <button id="btn-apply" class="btn-primary">Apply</button>
-          <button id="btn-delete" class="btn-danger">Delete Node</button>
-        </div>
-      `;
-      
-      html += '</div></div>';
-      this.container.innerHTML = html;
-      
-      this.attachNodeEventListeners(nodeId);
+    const nodeData = this.api.queries.getNode(nodeId as any);
+    if (!nodeData) {
+      this.renderEmpty();
+      return;
     }
     
-    /**
-     * Renders schema-based form fields.
-     * 
-     * @param schema - Property schema definition
-     * @param data - Current property values
-     * @returns HTML string for form fields
-     */
-    el.addEventListener('dragstart', (e: DragEvent) => {
-    const nodeType = (e.currentTarget as HTMLElement).getAttribute('data-node-type');
-    if (nodeType && e.dataTransfer) {
-      e.dataTransfer.setData('application/node-type', nodeType);
-      e.dataTransfer.effectAllowed = 'copy';
+    const definition = this.registry.getNodeDefinition(nodeData.type);
+    const schema = (definition as any)?.schema;
+    
+    let html = '<div class="properties-panel">';
+    html += '<div class="properties-header">Node Properties</div>';
+    html += '<div class="properties-body">';
+    
+    // Basic properties
+    html += `
+      <div class="property-field">
+        <label for="prop-label">Label</label>
+        <input 
+          type="text" 
+          id="prop-label" 
+          value="${this.escapeHtml(nodeData.label)}"
+          placeholder="Node label"
+        />
+      </div>
       
-      (e.currentTarget as HTMLElement).classList.add('dragging');
+      <div class="property-field">
+        <label for="prop-note">Note</label>
+        <textarea 
+          id="prop-note" 
+          rows="3"
+          placeholder="Add a note..."
+        >${this.escapeHtml(nodeData.note)}</textarea>
+      </div>
+    `;
+    
+    // Schema-based properties
+    if (schema && Object.keys(schema).length > 0) {
+      html += '<div class="property-divider"></div>';
+      html += '<div class="property-section-title">Configuration</div>';
+      html += this.renderSchemaFields(schema, nodeData.data);
     }
-  });
+    
+    // Style properties
+    html += '<div class="property-divider"></div>';
+    html += '<div class="property-section-title">Appearance</div>';
+    html += `
+      <div class="property-field">
+        <label for="prop-fill">Fill Color</label>
+        <input 
+          type="color" 
+          id="prop-fill" 
+          value="${nodeData.style.fill || '#ffffff'}"
+        />
+      </div>
+      
+      <div class="property-field">
+        <label for="prop-stroke">Stroke Color</label>
+        <input 
+          type="color" 
+          id="prop-stroke" 
+          value="${nodeData.style.stroke || '#333333'}"
+        />
+      </div>
+    `;
+    
+    // Actions
+    html += `
+      <div class="property-divider"></div>
+      <div class="property-actions">
+        <button id="btn-apply" class="btn-primary">Apply</button>
+        <button id="btn-delete" class="btn-danger">Delete Node</button>
+      </div>
+    `;
+    
+    html += '</div></div>';
+    this.container.innerHTML = html;
+    
+    this.attachNodeEventListeners(nodeId);
+  }
   
   /**
-   * Renders property form for a selected connection.
-   * 
-   * @param linkId - ID of selected connection
+   * Renders schema-based form fields.
    */
+  private renderSchemaFields(schema: PropertySchema, data: Record<string, unknown>): string {
+    let html = '';
+    
+    Object.entries(schema).forEach(([key, field]) => {
+      const value = data[key] ?? field.default ?? '';
+      
+      html += `<div class="property-field">`;
+      html += `<label for="prop-${key}">${field.label}</label>`;
+      
+      switch (field.type) {
+        case 'text':
+          html += `<input type="text" id="prop-${key}" data-prop-key="${key}" value="${this.escapeHtml(String(value))}" />`;
+          break;
+        
+        case 'number':
+          html += `<input type="number" id="prop-${key}" data-prop-key="${key}" value="${value}" />`;
+          break;
+        
+        case 'boolean':
+          html += `<input type="checkbox" id="prop-${key}" data-prop-key="${key}" ${value ? 'checked' : ''} />`;
+          break;
+        
+        case 'select':
+          html += `<select id="prop-${key}" data-prop-key="${key}">`;
+          (field.options || []).forEach(option => {
+            const selected = option === value ? 'selected' : '';
+            html += `<option value="${option}" ${selected}>${option}</option>`;
+          });
+          html += `</select>`;
+          break;
+      }
+      
+      html += `</div>`;
+    });
+    
+    return html;
+  }
+  
   private renderLinkProperties(linkId: string): void {
     const linkData = this.api.queries.getLink(linkId as any);
     if (!linkData) {
@@ -284,11 +269,6 @@ export class PropertiesPanel {
     this.attachLinkEventListeners(linkId);
   }
   
-  /**
-   * Renders property form for a selected note.
-   * 
-   * @param noteId - ID of selected note
-   */
   private renderNoteProperties(noteId: string): void {
     this.container.innerHTML = `
       <div class="properties-panel">
@@ -300,11 +280,6 @@ export class PropertiesPanel {
     `;
   }
   
-  /**
-   * Attaches event listeners for node property form.
-   * 
-   * @param nodeId - Node ID being edited
-   */
   private attachNodeEventListeners(nodeId: string): void {
     const applyBtn = this.container.querySelector('#btn-apply');
     const deleteBtn = this.container.querySelector('#btn-delete');
@@ -356,11 +331,6 @@ export class PropertiesPanel {
     });
   }
   
-  /**
-   * Attaches event listeners for connection property form.
-   * 
-   * @param linkId - Connection ID being edited
-   */
   private attachLinkEventListeners(linkId: string): void {
     const applyBtn = this.container.querySelector('#btn-apply');
     const deleteBtn = this.container.querySelector('#btn-delete');
@@ -388,21 +358,12 @@ export class PropertiesPanel {
     });
   }
   
-  /**
-   * Escapes HTML special characters.
-   * 
-   * @param text - Text to escape
-   * @returns Escaped HTML string
-   */
   private escapeHtml(text: string): string {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
   }
   
-  /**
-   * Cleans up the panel.
-   */
   destroy(): void {
     this.container.innerHTML = '';
   }

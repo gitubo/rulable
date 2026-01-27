@@ -501,7 +501,7 @@ export class DiagramAPI implements WidgetAPI {
           console.log('[API] State imported');
         } catch (error) {
           console.error('[API] importState failed:', error);
-          throw new CommandError('Failed to import state', 'importState', error);
+          throw new CommandError('Failed to import state', 'importState', error as Error);
         }
       },
       
