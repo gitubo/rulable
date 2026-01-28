@@ -7,7 +7,8 @@ export default {
     {
       file: 'dist/index.js',
       format: 'es',
-      sourcemap: true
+      sourcemap: true,
+      preserveModules: false 
     },
     {
       file: 'dist/index.umd.js',
@@ -21,11 +22,18 @@ export default {
   ],
   external: ['d3'],
   plugins: [
-    resolve(),
+    resolve({
+      extensions: ['.js', '.ts'],
+      browser: true,
+      preferBuiltins: false
+    }),
     typescript({
       tsconfig: './tsconfig.json',
       sourceMap: true,
-      inlineSources: true
+      inlineSources: true,
+      declaration: true,
+      declarationDir: './dist',
+      outDir: './dist'
     })
   ]
 };

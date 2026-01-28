@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Diagram Editor Widget - Example</title>
+  <title>Diagram Editor Widget - Example (FIXED)</title>
   <style>
     * {
       margin: 0;
@@ -78,37 +78,19 @@
       overflow: hidden;
     }
     
-    .event-log {
+    .status {
       background: white;
       border-radius: 8px;
       padding: 16px;
       margin-top: 20px;
-      max-height: 300px;
-      overflow-y: auto;
     }
     
-    .event-log h3 {
-      font-size: 16px;
-      margin-bottom: 12px;
-      color: #333;
-    }
-    
-    .event-item {
-      padding: 8px 12px;
-      margin-bottom: 8px;
-      background: #f5f5f5;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 12px;
-      color: #666;
-    }
-    
-    .event-item.error {
+    .status.error {
       background: #ffebee;
       color: #c62828;
     }
     
-    .event-item.success {
+    .status.success {
       background: #e8f5e9;
       color: #2e7d32;
     }
@@ -116,11 +98,13 @@
 </head>
 <body>
   <header>
-    <h1>📊 Diagram Editor Widget - Interactive Example</h1>
+    <h1>📊 Diagram Editor Widget - Fixed Module Loading</h1>
   </header>
   
   <div class="container">
-    <div class="controls">
+    <div id="status" class="status">Loading widget...</div>
+    
+    <div class="controls" style="display: none;" id="controls">
       <button class="primary" onclick="createStartNode()">
         ▶️ Create Start Node
       </button>
@@ -138,10 +122,6 @@
         🔗 Create Sample Workflow
       </button>
       
-      <button class="secondary" onclick="executeWorkflow()">
-        🚀 Execute Workflow
-      </button>
-      
       <button class="secondary" onclick="exportGraph()">
         💾 Export JSON
       </button>
@@ -152,66 +132,60 @@
     </div>
     
     <div id="diagram-container"></div>
-    
-    <div class="event-log">
-      <h3>📋 Event Log</h3>
-      <div id="event-list"></div>
-    </div>
   </div>
   
+  <!-- Load D3 first from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+  
+  <!-- Load widget module -->
   <script type="module">
-    import { DAGWidget } from './dist/index.js';
-    
-    // Initialize widget
-    window.widget = new DAGWidget({
-      container: '#diagram-container',
-      width: '100%',
-      height: '600px',
-      manifestUrl: '/plugins/manifest.json',
-      showDefaultUI: true,
-      initialZoom: 1,
-      initialOffset: { x: 50, y: 50 }
-    });
-    
-    // Subscribe to events and log them
-    let eventCount = 0;
-    window.widget.subscribe((payload) => {
-      logEvent(payload);
-    });
-    
-    function logEvent(payload) {
-      eventCount++;
-      const eventList = document.getElementById('event-list');
-      const item = document.createElement('div');
-      item.className = 'event-item';
-      
-      // Determine event class
-      if (payload && payload.type) {
-        if (payload.type.includes('ERROR')) {
-          item.classList.add('error');
-        } else if (payload.type.includes('COMPLETED') || payload.type.includes('CREATED')) {
-          item.classList.add('success');
-        }
-      }
-      
-      const timestamp = new Date().toLocaleTimeString();
-      const eventType = typeof payload === 'object' && payload !== null 
-        ? (payload.type || 'UNKNOWN')
-        : 'EVENT';
-      
-      item.textContent = `[${timestamp}] ${eventType}`;
-      
-      eventList.insertBefore(item, eventList.firstChild);
-      
-      // Limit to 20 events
-      if (eventList.children.length > 20) {
-        eventList.removeChild(eventList.lastChild);
-      }
+    // Check if D3 loaded
+    if (typeof d3 === 'undefined') {
+      document.getElementById('status').innerHTML = '❌ Error: D3 library failed to load';
+      document.getElementById('status').className = 'status error';
+      throw new Error('D3 not loaded');
     }
     
-    // Helper functions for button actions
+    console.log('✅ D3 loaded:', d3.version);
+    
+    // Import widget
+    import { DAGWidget } from './dist/index.js';
+    
+    console.log('✅ Widget module loaded');
+    
+    // Initialize widget
+    try {
+      window.widget = new DAGWidget({
+        container: '#diagram-container',
+        width: '100%',
+        height: '600px',
+        manifestUrl: '/plugins/manifest.json',
+        showDefaultUI: true,
+        initialZoom: 1,
+        initialOffset: { x: 50, y: 50 }
+      });
+      
+      console.log('✅ Widget initialized:', window.widget);
+      
+      // Show success
+      document.getElementById('status').innerHTML = '✅ Widget loaded successfully!';
+      document.getElementById('status').className = 'status success';
+      document.getElementById('controls').style.display = 'flex';
+      
+      // Subscribe to events
+      window.widget.subscribe((payload) => {
+        console.log('[Event]', payload);
+      });
+      
+    } catch (error) {
+      console.error('❌ Widget initialization failed:', error);
+      document.getElementById('status').innerHTML = `❌ Error: ${error.message}`;
+      document.getElementById('status').className = 'status error';
+    }
+    
+    // Helper functions
     window.createStartNode = () => {
-      widget.api.commands.createNode({
+      window.widget.api.commands.createNode({
         type: 'start',
         x: 100 + Math.random() * 200,
         y: 100 + Math.random() * 200,
@@ -220,7 +194,7 @@
     };
     
     window.createTaskNode = () => {
-      widget.api.commands.createNode({
+      window.widget.api.commands.createNode({
         type: 'task',
         x: 100 + Math.random() * 400,
         y: 100 + Math.random() * 300,
@@ -234,7 +208,7 @@
     };
     
     window.createDecisionNode = () => {
-      widget.api.commands.createNode({
+      window.widget.api.commands.createNode({
         type: 'decision',
         x: 100 + Math.random() * 400,
         y: 100 + Math.random() * 300,
@@ -247,7 +221,7 @@
     };
     
     window.createEndNode = () => {
-      widget.api.commands.createNode({
+      window.widget.api.commands.createNode({
         type: 'end',
         x: 100 + Math.random() * 200,
         y: 300 + Math.random() * 100,
@@ -256,8 +230,7 @@
     };
     
     window.createWorkflow = () => {
-      // Create a complete workflow
-      widget.api.commands.createNode({
+      window.widget.api.commands.createNode({
         type: 'start',
         x: 150,
         y: 200,
@@ -265,34 +238,25 @@
       });
       
       setTimeout(() => {
-        widget.api.commands.createNode({
+        window.widget.api.commands.createNode({
           type: 'task',
           x: 350,
           y: 200,
-          label: 'Process Data',
-          data: {
-            timeout: 10000,
-            retries: 5,
-            mode: 'async'
-          }
+          label: 'Process Data'
         });
       }, 100);
       
       setTimeout(() => {
-        widget.api.commands.createNode({
+        window.widget.api.commands.createNode({
           type: 'decision',
           x: 550,
           y: 200,
-          label: 'Success?',
-          data: {
-            condition: 'status === "ok"',
-            operator: 'equals'
-          }
+          label: 'Success?'
         });
       }, 200);
       
       setTimeout(() => {
-        widget.api.commands.createNode({
+        window.widget.api.commands.createNode({
           type: 'end',
           x: 750,
           y: 200,
@@ -301,25 +265,10 @@
       }, 300);
     };
     
-    window.executeWorkflow = async () => {
-      try {
-        await widget.api.commands.traverseDiagram({
-          strategy: 'sequential'
-        });
-        
-        setTimeout(() => {
-          alert('Workflow execution completed! Check the console for detailed results.');
-        }, 500);
-      } catch (error) {
-        alert('Workflow execution failed: ' + error.message);
-      }
-    };
-    
     window.exportGraph = () => {
-      const state = widget.api.queries.getGraphData();
+      const state = window.widget.api.queries.getGraphData();
       const json = JSON.stringify(state, null, 2);
       
-      // Create download
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -333,16 +282,9 @@
     
     window.clearGraph = () => {
       if (confirm('Clear all nodes and connections?')) {
-        const nodes = widget.api.queries.getAllNodesDefinition();
-        // Note: In production, you'd iterate through actual node instances
-        // This is a simplified example
         window.location.reload();
       }
     };
-    
-    // Log initial state
-    console.log('Widget initialized:', widget);
-    console.log('API available:', widget.api);
   </script>
 </body>
 </html>
