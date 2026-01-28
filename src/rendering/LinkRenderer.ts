@@ -26,16 +26,20 @@ export class LinkRenderer {
   
   render(
     container: d3.Selection<SVGGElement, unknown, null, undefined>,
-    connections: ReadonlyArray<Connection>,
-    nodes: ReadonlyArray<Node>
+    connections: ReadonlyArray<Readonly<Connection>>,
+    nodes: ReadonlyArray<Readonly<Node>>
   ): void {
     // Get handler positions from store cache
     const handlerPositions = this.getHandlerPositions();
     
+    // Cast to mutable for D3 binding
+    const connectionsArray = connections as any[];
+    const nodesArray = nodes as any[];
+    
     // Bind data
     const linkGroups = container
       .selectAll<SVGGElement, Connection>('g.connection')
-      .data(connections as Connection[], (d: Connection) => d.id);
+      .data(connectionsArray, (d: Connection) => d.id);
       
     // EXIT
     linkGroups.exit().remove();
@@ -44,20 +48,21 @@ export class LinkRenderer {
     const enterGroups = linkGroups.enter()
       .append('g')
       .attr('class', 'connection')
-      .attr('data-connection-id', d => d.id);
+      .attr('data-connection-id', (d: Connection) => d.id);
       
-    // Create link structure
-    enterGroups.each((d, i, elements) => {
-      const group = d3.select(elements[i]);
+    // Create link structure - FIX: Use proper type for .each()
+    enterGroups.each((d: Connection, i: number, groups: ArrayLike<SVGGElement>) => {
+      const group = d3.select(groups[i]);
       this.createLinkStructure(group as any);
     });
     
     // UPDATE
     const allGroups = enterGroups.merge(linkGroups);
     
-    allGroups.each((d, i, elements) => {
-      const group = d3.select(elements[i]);
-      this.updateLinkContent(group as any, d, nodes as Node[], handlerPositions);
+    // FIX: Use proper type for .each()
+    allGroups.each((d: Connection, i: number, groups: ArrayLike<SVGGElement>) => {
+      const group = d3.select(groups[i]);
+      this.updateLinkContent(group as any, d, nodesArray, handlerPositions);
     });
     
     // Update selection styles
@@ -136,11 +141,17 @@ export class LinkRenderer {
     // Update paths
     group.select('.connection-hitarea').attr('d', pathString);
     
-    group.select('.connection-path')
+    const pathSelection = group.select('.connection-path')
       .attr('d', pathString)
       .style('stroke', connection.style.stroke || Config.DEFAULT_LINK_STROKE)
-      .style('stroke-width', connection.style.strokeWidth || Config.DEFAULT_LINK_WIDTH)
-      .style('stroke-dasharray', connection.style.strokeDasharray || null);
+      .style('stroke-width', connection.style.strokeWidth || Config.DEFAULT_LINK_WIDTH);
+    
+    // Handle stroke-dasharray properly
+    if (connection.style.strokeDasharray) {
+      pathSelection.style('stroke-dasharray', connection.style.strokeDasharray);
+    } else {
+      pathSelection.style('stroke-dasharray', null);
+    }
       
     // Update label if present
     if (connection.label) {
@@ -196,8 +207,9 @@ export class LinkRenderer {
   private updateSelectionStyles(
     groups: d3.Selection<SVGGElement, Connection, null, undefined>
   ): void {
-    groups.each((d, i, elements) => {
-      const group = d3.select(elements[i]);
+    // FIX: Use proper type for .each()
+    groups.each((d: Connection, i: number, groups: ArrayLike<SVGGElement>) => {
+      const group = d3.select(groups[i]);
       const isSelected = this.selectionState?.type === 'link' && 
                         this.selectionState?.id === d.id;
       
@@ -216,8 +228,8 @@ export class LinkRenderer {
     const map = new Map<string, Position>();
     const nodes = this.store.getAllNodes();
     
-    nodes.forEach(node => {
-      node.handlers.forEach(handler => {
+    nodes.forEach((node: Readonly<Node>) => {
+      node.handlers.forEach((handler: any) => {
         const pos = this.store.getHandlerAbsolutePosition(handler.id);
         if (pos) {
           map.set(handler.id, pos);

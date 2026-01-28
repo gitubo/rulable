@@ -123,7 +123,7 @@ class NodeDragState extends InteractionState {
     
     // Commit to history if moved
     if (this.hasMoved) {
-      this.context.eventBus.emit('HISTORY_SAVE_REQUESTED', undefined);
+      (this.context.eventBus as any).emit('HISTORY_SAVE_REQUESTED', undefined);
     }
   }
   
@@ -270,14 +270,14 @@ export class InputSystem {
    * @param selectionManager - Selection manager
    * @param renderEngine - Render engine
    */
-    constructor(
+  constructor(
     svgElement: SVGSVGElement,
     store: Store,
     registry: Registry,
     eventBus: EventBus,
     selectionManager: SelectionManager,
     renderEngine: RenderEngine
-    ) {
+  ) {
     this.svg = d3.select(svgElement);
     this.store = store;
     this.registry = registry;
@@ -288,10 +288,10 @@ export class InputSystem {
     this.currentState = new IdleState(this);
     this.inlineEditor = new InlineEditor(svgElement.parentElement!);
     
-    this.zoom = d3.zoom<SVGSVGElement, unknown>(); // Initialize here
+    this.zoom = d3.zoom<SVGSVGElement, unknown>();
     this.initializeZoom();
     this.attachEvents();
-    }
+  }
   
   /**
    * Initializes D3 zoom behavior for pan and zoom.
@@ -299,7 +299,7 @@ export class InputSystem {
   private initializeZoom(): void {
     this.zoom = d3.zoom<SVGSVGElement, unknown>()
       .scaleExtent([Config.ZOOM_MIN, Config.ZOOM_MAX])
-      .on('zoom', (event) => {
+      .on('zoom', (event: any) => {
         const transform: Transform = {
           k: event.transform.k,
           x: event.transform.x,
@@ -359,10 +359,10 @@ export class InputSystem {
       event.preventDefault();
       if (event.shiftKey) {
         // Redo
-        this.eventBus.emit('HISTORY_REDO_REQUESTED', undefined);
+        (this.eventBus as any).emit('HISTORY_REDO_REQUESTED', undefined);
       } else {
         // Undo
-        this.eventBus.emit('HISTORY_UNDO_REQUESTED', undefined);
+        (this.eventBus as any).emit('HISTORY_UNDO_REQUESTED', undefined);
       }
       return;
     }
@@ -374,10 +374,10 @@ export class InputSystem {
         event.preventDefault();
         if (selection.type === 'node') {
           this.store.removeNode(selection.id as NodeId);
-          this.eventBus.emit('HISTORY_SAVE_REQUESTED', undefined);
+          (this.eventBus as any).emit('HISTORY_SAVE_REQUESTED', undefined);
         } else if (selection.type === 'link') {
           this.store.removeLink(selection.id as any);
-          this.eventBus.emit('HISTORY_SAVE_REQUESTED', undefined);
+          (this.eventBus as any).emit('HISTORY_SAVE_REQUESTED', undefined);
         }
       }
       return;

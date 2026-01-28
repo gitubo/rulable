@@ -501,7 +501,8 @@ export class DiagramAPI implements WidgetAPI {
           console.log('[API] State imported');
         } catch (error) {
           console.error('[API] importState failed:', error);
-          throw new CommandError('Failed to import state', 'importState', error as Error);
+          const errorObj = error instanceof Error ? error : new Error(String(error));
+          throw new CommandError('Failed to import state', 'importState', errorObj);
         }
       },
       
@@ -547,8 +548,9 @@ export class DiagramAPI implements WidgetAPI {
           
         } catch (error) {
           console.error('[API] traverseDiagram failed:', error);
+          const errorMsg = error instanceof Error ? error.message : 'Traversal failed';
           this.eventBus.emit('TRAVERSE_ERROR', {
-            message: error.message || 'Traversal failed',
+            message: errorMsg,
             code: 'TRAVERSAL_ERROR'
           });
         }

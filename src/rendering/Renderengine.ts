@@ -85,7 +85,7 @@ export class RenderEngine {
     // Set dirty flag on any state change
     this.eventBus.on('RENDER_REQUESTED', () => this.requestRender());
     
-    this.eventBus.on('SELECTION_CHANGED', (selection) => {
+    this.eventBus.on('SELECTION_CHANGED', (selection: any) => {
       this.nodeRenderer.setSelection(selection);
       this.linkRenderer.setSelection(selection);
       this.requestRender();
@@ -136,8 +136,9 @@ export class RenderEngine {
     // Render in layer order
     // Notes rendering would go here (omitted for MVP focus on Node/Link)
     
-    this.linkRenderer.render(this.layers.links, links, nodes);
-    this.nodeRenderer.render(this.layers.nodes, nodes);
+    // Cast readonly arrays for rendering
+    this.linkRenderer.render(this.layers.links, links as any, nodes as any);
+    this.nodeRenderer.render(this.layers.nodes, nodes as any);
   }
   
   renderGhost(): void {
@@ -160,7 +161,8 @@ export class RenderEngine {
       ? this.store.getLinksForNode(nodeId)
       : this.store.getAllLinks();
       
-    this.linkRenderer.render(this.layers.links, links, nodes);
+    // Cast readonly arrays
+    this.linkRenderer.render(this.layers.links, links as any, nodes as any);
   }
   
   showGhostConnection(sourceHandlerId: string, targetPosition: { x: number; y: number }): void {

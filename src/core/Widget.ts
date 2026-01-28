@@ -308,27 +308,27 @@ export class DAGWidget {
    * @param callback - Event callback function
    * @returns Unsubscribe function
    */
-  subscribe<T extends EventType>(callback: EventCallback<T>): UnsubscribeFn {
-    const unsubscribers: (() => void)[] = [];
-    
-    const eventTypes: EventType[] = [
-      'NODE_CREATED', 'NODE_UPDATED', 'NODE_REMOVED', 'NODE_MOVED',
-      'CONNECTION_CREATED', 'CONNECTION_UPDATED', 'CONNECTION_REMOVED',
-      'SELECTION_CHANGED', 'HISTORY_CHANGED', 'STATE_LOADED',
-      'PLUGINS_LOADED', 'TRAVERSE_COMPLETED', 'TRAVERSE_ERROR',
-      'RENDER_REQUESTED', 'NOTE_CREATED', 'NOTE_UPDATED', 'NOTE_REMOVED'
-    ];
-    
-    eventTypes.forEach(event => {
-      unsubscribers.push(
-        this.eventBus.on(event, (payload) => callback(payload as any))
-      );
-    });
-    
-    return () => {
-      unsubscribers.forEach(unsub => unsub());
-    };
-  }
+  subscribe(callback: (payload: any) => void): UnsubscribeFn {
+  const unsubscribers: (() => void)[] = [];
+  
+  const eventTypes: EventType[] = [
+    'NODE_CREATED', 'NODE_UPDATED', 'NODE_REMOVED', 'NODE_MOVED',
+    'CONNECTION_CREATED', 'CONNECTION_UPDATED', 'CONNECTION_REMOVED',
+    'SELECTION_CHANGED', 'HISTORY_CHANGED', 'STATE_LOADED',
+    'PLUGINS_LOADED', 'TRAVERSE_COMPLETED', 'TRAVERSE_ERROR',
+    'RENDER_REQUESTED', 'NOTE_CREATED', 'NOTE_UPDATED', 'NOTE_REMOVED'
+  ];
+  
+  eventTypes.forEach(event => {
+    unsubscribers.push(
+      this.eventBus.on(event, (payload: any) => callback(payload))
+    );
+  });
+  
+  return () => {
+    unsubscribers.forEach(unsub => unsub());
+  };
+}
   
   /**
    * Legacy dispatch method for backwards compatibility.

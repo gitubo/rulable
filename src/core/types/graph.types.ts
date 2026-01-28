@@ -88,8 +88,8 @@ export interface LinkLabel {
   fontSize?: number;
 }
 
-// Top Level State
-interface GraphState {
+// Top Level State - EXPORTED
+export interface GraphState {
   nodes: any[];  // Remove readonly for internal mutations
   links: any[];
   notes: any[];

@@ -64,9 +64,9 @@ export class Store {
 
     // Auto-clear selection on item removal
     if (selectionManager) {
-      this.eventBus.on('NODE_REMOVED', (id) => selectionManager.handleNodeRemoved(id));
-      this.eventBus.on('CONNECTION_REMOVED', (id) => selectionManager.handleLinkRemoved(id));
-      this.eventBus.on('NOTE_REMOVED', (id) => selectionManager.handleNoteRemoved(id));
+      this.eventBus.on('NODE_REMOVED', (id: NodeId) => selectionManager.handleNodeRemoved(id));
+      this.eventBus.on('CONNECTION_REMOVED', (id: ConnectionId) => selectionManager.handleLinkRemoved(id));
+      this.eventBus.on('NOTE_REMOVED', (id: NoteId) => selectionManager.handleNoteRemoved(id));
     }
   }
 
@@ -81,7 +81,7 @@ export class Store {
    */
   getNode(id: NodeId): Readonly<Node> | null {
     try {
-      const node = this.state.nodes.find(n => n.id === id);
+      const node = this.state.nodes.find((n: Node) => n.id === id);
       return node ? deepFreeze(node.clone()) : null;
     } catch (error) {
       console.error(`[Store] Error retrieving node ${id}:`, error);
@@ -96,7 +96,7 @@ export class Store {
    */
   getAllNodes(): ReadonlyArray<Readonly<Node>> {
     try {
-      return deepFreeze(this.state.nodes.map(n => n.clone()));
+      return deepFreeze(this.state.nodes.map((n: Node) => n.clone()));
     } catch (error) {
       console.error('[Store] Error retrieving all nodes:', error);
       return [];
@@ -111,7 +111,7 @@ export class Store {
    */
   getLink(id: ConnectionId): Readonly<Connection> | null {
     try {
-      const link = this.state.links.find(l => l.id === id);
+      const link = this.state.links.find((l: Connection) => l.id === id);
       return link ? deepFreeze(link.clone()) : null;
     } catch (error) {
       console.error(`[Store] Error retrieving link ${id}:`, error);
@@ -126,7 +126,7 @@ export class Store {
    */
   getAllLinks(): ReadonlyArray<Readonly<Connection>> {
     try {
-      return deepFreeze(this.state.links.map(l => l.clone()));
+      return deepFreeze(this.state.links.map((l: Connection) => l.clone()));
     } catch (error) {
       console.error('[Store] Error retrieving all links:', error);
       return [];
@@ -141,7 +141,7 @@ export class Store {
    */
   getNote(id: NoteId): Readonly<Note> | null {
     try {
-      const note = this.state.notes.find(n => n.id === id);
+      const note = this.state.notes.find((n: Note) => n.id === id);
       return note ? deepFreeze(note.clone()) : null;
     } catch (error) {
       console.error(`[Store] Error retrieving note ${id}:`, error);
@@ -156,7 +156,7 @@ export class Store {
    */
   getAllNotes(): ReadonlyArray<Readonly<Note>> {
     try {
-      return deepFreeze(this.state.notes.map(n => n.clone()));
+      return deepFreeze(this.state.notes.map((n: Note) => n.clone()));
     } catch (error) {
       console.error('[Store] Error retrieving all notes:', error);
       return [];
@@ -182,7 +182,7 @@ export class Store {
   getLinksForNode(nodeId: NodeId): ReadonlyArray<Readonly<Connection>> {
     try {
       const links = this.cache.nodeToLinks.get(nodeId) || [];
-      return deepFreeze(links.map(l => l.clone()));
+      return deepFreeze(links.map((l: Connection) => l.clone()));
     } catch (error) {
       console.error(`[Store] Error retrieving links for node ${nodeId}:`, error);
       return [];
@@ -208,9 +208,9 @@ export class Store {
   getState(): Readonly<GraphState> {
     try {
       return deepFreeze({
-        nodes: this.state.nodes.map(n => n.clone()),
-        links: this.state.links.map(l => l.clone()),
-        notes: this.state.notes.map(n => n.clone()),
+        nodes: this.state.nodes.map((n: Node) => n.clone()),
+        links: this.state.links.map((l: Connection) => l.clone()),
+        notes: this.state.notes.map((n: Note) => n.clone()),
         transform: { ...this.state.transform }
       });
     } catch (error) {
@@ -234,21 +234,21 @@ export class Store {
    * @throws {TypeError} If node is null/undefined
    */
   addNode(node: Node): void {
-  if (!node) {
-    throw new TypeError('Cannot add null or undefined node');
+    if (!node) {
+      throw new TypeError('Cannot add null or undefined node');
+    }
+    
+    try {
+      this.state.nodes.push(node);
+      this.rebuildNodeToLinksCache();
+      this.updateHandlerPositionCache(node);
+      this.eventBus.emit('NODE_CREATED', node as any);
+      this.eventBus.emit('RENDER_REQUESTED', undefined);
+    } catch (error) {
+      console.error('[Store] Error adding node:', error);
+      throw error;
+    }
   }
-  
-  try {
-    (this.state.nodes as any[]).push(node as any);  // Cast to mutable
-    this.rebuildNodeToLinksCache();
-    this.updateHandlerPositionCache(node);
-    this.eventBus.emit('NODE_CREATED', node as any);
-    this.eventBus.emit('RENDER_REQUESTED', undefined);
-  } catch (error) {
-    console.error('[Store] Error adding node:', error);
-    throw error;
-  }
-}
   
   /**
    * Removes a node from the graph.
@@ -257,29 +257,29 @@ export class Store {
    * @param id - Node identifier
    */
   removeNode(id: NodeId): void {
-  try {
-    const index = (this.state.nodes as any[]).findIndex(n => n.id === id);
-    if (index === -1) {
-      console.warn(`[Store] Cannot remove node ${id}: not found`);
-      return;
+    try {
+      const index = this.state.nodes.findIndex((n: Node) => n.id === id);
+      if (index === -1) {
+        console.warn(`[Store] Cannot remove node ${id}: not found`);
+        return;
+      }
+      
+      const node = this.state.nodes[index];
+      
+      // Remove connected links
+      const connectedLinks = this.getLinksForNode(id);
+      connectedLinks.forEach((link: Readonly<Connection>) => this.removeLink(link.id));
+      
+      this.state.nodes.splice(index, 1);
+      this.rebuildNodeToLinksCache();
+      this.removeHandlerPositionsForNode(node);
+      
+      this.eventBus.emit('NODE_REMOVED', id);
+      this.eventBus.emit('RENDER_REQUESTED', undefined);
+    } catch (error) {
+      console.error(`[Store] Error removing node ${id}:`, error);
     }
-    
-    const node = this.state.nodes[index];
-    
-    // Remove connected links
-    const connectedLinks = this.getLinksForNode(id);
-    connectedLinks.forEach(link => this.removeLink(link.id));
-    
-    (this.state.nodes as any[]).splice(index, 1);
-    this.rebuildNodeToLinksCache();
-    this.removeHandlerPositionsForNode(node);
-    
-    this.eventBus.emit('NODE_REMOVED', id);
-    this.eventBus.emit('RENDER_REQUESTED', undefined);
-  } catch (error) {
-    console.error(`[Store] Error removing node ${id}:`, error);
   }
-}
   
   /**
    * Updates node properties.
@@ -290,7 +290,7 @@ export class Store {
    */
   updateNode(id: NodeId, changes: Partial<NodeData>): void {
     try {
-      const node = this.state.nodes.find(n => n.id === id);
+      const node = this.state.nodes.find((n: Node) => n.id === id);
       if (!node) {
         console.warn(`[Store] Cannot update node ${id}: not found`);
         return;
@@ -317,7 +317,7 @@ export class Store {
    */
   moveNode(id: NodeId, newPosition: Position): void {
     try {
-      const node = this.state.nodes.find(n => n.id === id);
+      const node = this.state.nodes.find((n: Node) => n.id === id);
       if (!node) {
         console.warn(`[Store] Cannot move node ${id}: not found`);
         return;
@@ -352,7 +352,7 @@ export class Store {
     }
     
     try {
-      this.state.links.push(link as any);
+      this.state.links.push(link);
       this.rebuildNodeToLinksCache();
       this.eventBus.emit('CONNECTION_CREATED', link as any);
       this.eventBus.emit('RENDER_REQUESTED', undefined);
@@ -369,7 +369,7 @@ export class Store {
    */
   removeLink(id: ConnectionId): void {
     try {
-      const index = this.state.links.findIndex(l => l.id === id);
+      const index = this.state.links.findIndex((l: Connection) => l.id === id);
       if (index === -1) {
         console.warn(`[Store] Cannot remove link ${id}: not found`);
         return;
@@ -392,7 +392,7 @@ export class Store {
    */
   updateLink(id: ConnectionId, changes: Partial<ConnectionData>): void {
     try {
-      const link = this.state.links.find(l => l.id === id);
+      const link = this.state.links.find((l: Connection) => l.id === id);
       if (!link) {
         console.warn(`[Store] Cannot update link ${id}: not found`);
         return;
@@ -418,7 +418,7 @@ export class Store {
     }
     
     try {
-      this.state.notes.push(note as any);
+      this.state.notes.push(note);
       this.eventBus.emit('NOTE_CREATED', note as any);
       this.eventBus.emit('RENDER_REQUESTED', undefined);
     } catch (error) {
@@ -434,7 +434,7 @@ export class Store {
    */
   removeNote(id: NoteId): void {
     try {
-      const index = this.state.notes.findIndex(n => n.id === id);
+      const index = this.state.notes.findIndex((n: Note) => n.id === id);
       if (index === -1) {
         console.warn(`[Store] Cannot remove note ${id}: not found`);
         return;
@@ -456,7 +456,7 @@ export class Store {
    */
   updateNote(id: NoteId, changes: Partial<{ text: string; position: Position; dimensions: Dimensions }>): void {
     try {
-      const note = this.state.notes.find(n => n.id === id);
+      const note = this.state.notes.find((n: Note) => n.id === id);
       if (!note) {
         console.warn(`[Store] Cannot update note ${id}: not found`);
         return;
@@ -495,7 +495,7 @@ export class Store {
    */
   setState(state: GraphState): void {
     try {
-      (this.state as any) = state;
+      this.state = state;
       this.rebuildAllCaches();
       this.eventBus.emit('STATE_LOADED', this.getState());
       this.eventBus.emit('RENDER_REQUESTED', undefined);
@@ -518,7 +518,7 @@ export class Store {
   
   private rebuildNodeToLinksCache(): void {
     this.cache.nodeToLinks.clear();
-    this.state.links.forEach(link => {
+    this.state.links.forEach((link: Connection) => {
       const sourceNode = this.findNodeByHandlerId(link.sourceHandlerId);
       const targetNode = this.findNodeByHandlerId(link.targetHandlerId);
       
@@ -540,13 +540,13 @@ export class Store {
   
   private rebuildHandlerPositionCache(): void {
     this.cache.handlerAbsolutePositions.clear();
-    this.state.nodes.forEach(node => {
+    this.state.nodes.forEach((node: Node) => {
       this.updateHandlerPositionCache(node);
     });
   }
   
   private updateHandlerPositionCache(node: Node): void {
-    node.handlers.forEach(handler => {
+    node.handlers.forEach((handler: Handler) => {
       const absolutePosition = {
         x: node.position.x + handler.offset.x,
         y: node.position.y + handler.offset.y
@@ -556,14 +556,14 @@ export class Store {
   }
   
   private removeHandlerPositionsForNode(node: Node): void {
-    node.handlers.forEach(handler => {
+    node.handlers.forEach((handler: Handler) => {
       this.cache.handlerAbsolutePositions.delete(handler.id);
     });
   }
   
   private findNodeByHandlerId(handlerId: HandlerId): Node | null {
-    return this.state.nodes.find(node => 
-      node.handlers.some(h => h.id === handlerId)
+    return this.state.nodes.find((node: Node) => 
+      node.handlers.some((h: Handler) => h.id === handlerId)
     ) || null;
   }
 }

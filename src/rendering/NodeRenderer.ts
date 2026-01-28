@@ -178,10 +178,10 @@ export class NodeRenderer {
     this.truncateText(label, node.width - 20);
   }
   
-  private truncateText(
-    textElement: d3.Selection<SVGTextElement, unknown, null, undefined>,
+    private truncateText(
+    textElement: d3.Selection<SVGTextElement, any, null, undefined>,
     maxWidth: number
-  ): void {
+    ): void {
     const node = textElement.node();
     if (!node) return;
     

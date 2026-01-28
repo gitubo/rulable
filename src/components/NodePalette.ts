@@ -134,22 +134,23 @@ export class NodePalette {
   private attachEventListeners(): void {
     this.container.querySelectorAll('.palette-node').forEach(el => {
       // Drag start - store node type
-      el.addEventListener('dragstart', (e: DragEvent) => {
+      el.addEventListener('dragstart', (e: Event) => {
+        const dragEvent = e as DragEvent;
         const nodeType = (e.currentTarget as HTMLElement).getAttribute('data-node-type');
-        if (nodeType && e.dataTransfer) {
-            e.dataTransfer.setData('application/node-type', nodeType);
-            e.dataTransfer.effectAllowed = 'copy';
-            
-            (e.currentTarget as HTMLElement).classList.add('dragging');
+        if (nodeType && dragEvent.dataTransfer) {
+          dragEvent.dataTransfer.setData('application/node-type', nodeType);
+          dragEvent.dataTransfer.effectAllowed = 'copy';
+          
+          (e.currentTarget as HTMLElement).classList.add('dragging');
         }
-        });
+      });
       
-      el.addEventListener('dragend', (e) => {
+      el.addEventListener('dragend', (e: Event) => {
         (e.currentTarget as HTMLElement).classList.remove('dragging');
       });
       
       // Click - create node at center of viewport
-      el.addEventListener('click', (e) => {
+      el.addEventListener('click', (e: Event) => {
         const nodeType = (e.currentTarget as HTMLElement).getAttribute('data-node-type');
         if (!nodeType) return;
         
