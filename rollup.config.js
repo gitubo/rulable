@@ -8,7 +8,11 @@ export default {
       file: 'dist/index.js',
       format: 'es',
       sourcemap: true,
-      preserveModules: false 
+      preserveModules: false,
+      // Map d3 to CDN URL
+      paths: {
+        'd3': 'https://cdn.jsdelivr.net/npm/d3@7/+esm'
+      }
     },
     {
       file: 'dist/index.umd.js',

@@ -117,18 +117,7 @@ export class DAGWidget {
       this.selectionManager
     );
     
-    // Initialize input system
-    console.log('[DAGWidget] Initializing input system...');
-    this.inputSystem = new InputSystem(
-      this.svg,
-      this.store,
-      this.registry,
-      this.eventBus,
-      this.selectionManager,
-      this.renderEngine
-    );
-    
-    // Create API
+    // Create API first (needed by InputSystem)
     console.log('[DAGWidget] Creating public API...');
     const apiInstance = new DiagramAPI(
       this.eventBus,
@@ -140,6 +129,18 @@ export class DAGWidget {
     );
     
     this.api = apiInstance;
+    
+    // Initialize input system (needs API for creating connections)
+    console.log('[DAGWidget] Initializing input system...');
+    this.inputSystem = new InputSystem(
+      this.svg,
+      this.store,
+      this.registry,
+      this.eventBus,
+      this.selectionManager,
+      this.renderEngine,
+      apiInstance
+    );
     
     // Load plugins if manifest URL provided
     if (config.manifestUrl) {

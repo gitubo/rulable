@@ -1,5 +1,6 @@
 /**
  * Main orchestrator for the rendering loop and layer management.
+ * FIXED: Accepts graph coordinates for ghost connection
  */
 import * as d3 from 'd3';
 import { Store } from '../core/State';
@@ -59,19 +60,15 @@ export class RenderEngine {
     this.nodeRenderer = new NodeRenderer(registry, store);
     this.linkRenderer = new LinkRenderer(registry, store);
     
-    // Initialize Layers needs to be called after assignment
     this.layers = this.initializeLayers();
     this.subscribeToEvents();
   }
   
   private initializeLayers() {
-    // Clear existing content
     this.svg.selectAll('*').remove();
     
-    // Add defs
     this.svg.append('defs');
     
-    // Create layers in Z-index order
     const grid = new Grid(this.svg.node()!);
     const notes = this.svg.append('g').attr('class', 'notes-layer');
     const links = this.svg.append('g').attr('class', 'links-layer');
@@ -82,7 +79,6 @@ export class RenderEngine {
   }
   
   private subscribeToEvents(): void {
-    // Set dirty flag on any state change
     this.eventBus.on('RENDER_REQUESTED', () => this.requestRender());
     
     this.eventBus.on('SELECTION_CHANGED', (selection: any) => {
@@ -130,20 +126,14 @@ export class RenderEngine {
     const links = this.store.getAllLinks();
     const transform = this.store.getTransform();
     
-    // Update transform on all layers
     this.updateTransform(transform);
     
-    // Render in layer order
-    // Notes rendering would go here (omitted for MVP focus on Node/Link)
-    
-    // Cast readonly arrays for rendering
     this.linkRenderer.render(this.layers.links, links as any, nodes as any);
     this.nodeRenderer.render(this.layers.nodes, nodes as any);
   }
   
   renderGhost(): void {
-    // Ghost rendering generally handled by specific transient interactions
-    // This hook allows for additional frame-sync logic if needed
+    // Ghost rendering handled by specific methods
   }
   
   updateTransform(transform: Transform): void {
@@ -153,6 +143,7 @@ export class RenderEngine {
     this.layers.notes.attr('transform', transformString);
     this.layers.links.attr('transform', transformString);
     this.layers.nodes.attr('transform', transformString);
+    this.layers.overlay.attr('transform', transformString);
   }
   
   updateLinksOnly(nodeId?: NodeId): void {
@@ -161,20 +152,12 @@ export class RenderEngine {
       ? this.store.getLinksForNode(nodeId)
       : this.store.getAllLinks();
       
-    // Cast readonly arrays
     this.linkRenderer.render(this.layers.links, links as any, nodes as any);
   }
   
-  showGhostConnection(sourceHandlerId: string, targetPosition: { x: number; y: number }): void {
-    const transform = this.store.getTransform();
-    
-    // Transform target position to graph coordinates to match SVG coordinate space
-    const graphPosition = {
-      x: (targetPosition.x - transform.x) / transform.k,
-      y: (targetPosition.y - transform.y) / transform.k
-    };
-    
-    this.linkRenderer.renderGhost(this.layers.overlay, sourceHandlerId, graphPosition);
+  showGhostConnection(sourceHandlerId: string, targetGraphPosition: { x: number; y: number }): void {
+    // FIXED: Input is already in graph coordinates, just pass it through
+    this.linkRenderer.renderGhost(this.layers.overlay, sourceHandlerId, targetGraphPosition);
   }
   
   clearGhostConnection(): void {

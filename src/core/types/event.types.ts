@@ -64,6 +64,9 @@ export interface EventPayloadMap {
   CONNECTION_REMOVED: ConnectionId;
   SELECTION_CHANGED: Selection | null;
   HISTORY_CHANGED: HistoryStatus;
+  HISTORY_SAVE_REQUESTED: void;
+  HISTORY_UNDO_REQUESTED: void;
+  HISTORY_REDO_REQUESTED: void;
   STATE_LOADED: GraphState;
   PLUGINS_LOADED: void;
   TRAVERSE_COMPLETED: TraverseResult;

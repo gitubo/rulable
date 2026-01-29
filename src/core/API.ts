@@ -1,6 +1,7 @@
 /**
  * Command-Query API Facade implementing strict CQS separation.
  * Provides the public interface for external consumers with comprehensive validation.
+ * FIXED: Adds handler creation when creating nodes
  */
 import { EventBus } from './EventBus';
 import { Store } from './State';
@@ -33,6 +34,7 @@ import {
 import { Node } from '../domain/models/Node';
 import { Connection } from '../domain/models/Connection';
 import { Note } from '../domain/models/Note';
+import { Handler } from '../domain/models/Handler';
 import { Config } from './Config';
 
 /**
@@ -53,19 +55,6 @@ export class CommandError extends Error {
  * Main API facade implementing Command-Query Separation.
  * Commands mutate state and return void (effects communicated via events).
  * Queries return immutable data copies with no side effects.
- * 
- * @example
- * ```typescript
- * const api = new DiagramAPI(eventBus, store, registry, ...);
- * 
- * // Commands
- * api.commands.createNode({ type: 'task', x: 100, y: 100 });
- * api.commands.undo();
- * 
- * // Queries
- * const node = api.queries.getNode(nodeId);
- * const state = api.queries.getGraphData();
- * ```
  */
 export class DiagramAPI implements WidgetAPI {
   readonly commands: WidgetCommands;
@@ -90,9 +79,7 @@ export class DiagramAPI implements WidgetAPI {
   private createCommandsAPI(): WidgetCommands {
     return {
       loadPlugins: (url?: string) => {
-        // Will be implemented in plugin loader phase
         console.log('[API] loadPlugins:', url);
-        // Emit event for plugin loader to handle
         this.eventBus.emit('PLUGINS_LOADED', undefined);
       },
       
@@ -112,19 +99,25 @@ export class DiagramAPI implements WidgetAPI {
           // Generate unique ID
           const nodeId = createNodeId(`node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
           
+          // Create handlers based on node type
+          const handlers = this.createHandlersForNode(nodeId, payload.type);
+          
           const node = new Node(
             nodeId,
             payload.type,
             definition,
             { x: payload.x, y: payload.y },
             payload.label || '',
-            payload.data || {}
+            payload.data || {},
+            handlers,
+            200, // default width
+            100  // default height
           );
           
           this.store.addNode(node);
           this.historyManager.save();
           
-          console.log(`[API] Node created: ${nodeId}`);
+          console.log(`[API] Node created: ${nodeId} with ${handlers.length} handlers`);
           
         } catch (error) {
           console.error('[API] createNode failed:', error);
@@ -197,13 +190,19 @@ export class DiagramAPI implements WidgetAPI {
           // Create new node
           const nodeId = createNodeId(`node_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`);
           
+          // Create handlers
+          const handlers = this.createHandlersForNode(nodeId, payload.type);
+          
           const node = new Node(
             nodeId,
             payload.type,
             definition,
             { x: payload.x, y: payload.y },
             '',
-            {}
+            {},
+            handlers,
+            200,
+            100
           );
           
           this.store.addNode(node);
@@ -458,8 +457,6 @@ export class DiagramAPI implements WidgetAPI {
       
       zoomFit: () => {
         try {
-          // TODO: Calculate bounds and fit
-          // For now, just reset to 1:1
           this.store.setTransform({ k: 1, x: 0, y: 0 });
           
           console.log('[API] Zoom fit (placeholder)');
@@ -522,16 +519,10 @@ export class DiagramAPI implements WidgetAPI {
           const nodes = this.store.getAllNodes();
           const links = this.store.getAllLinks();
           
-          // Sort nodes according to strategy
           const sortedNodes = strategy.sortNodes([...nodes as any], [...links as any]);
-          
-          // Get visitors
           const visitors = strategy.getVisitors();
-          
-          // Initialize aggregator
           let aggregator = strategy.getInitialAggregator();
           
-          // Traverse
           for (const node of sortedNodes) {
             const visitor = visitors[node.type];
             if (visitor) {
@@ -559,8 +550,73 @@ export class DiagramAPI implements WidgetAPI {
   }
   
   /**
+   * Creates handlers for a node based on its type.
+   * This is the key fix - handlers need to be created!
+   */
+  private createHandlersForNode(nodeId: NodeId, nodeType: string): Handler[] {
+    const handlers: Handler[] = [];
+    
+    // Get all registered handler types
+    const handlerDefinitions = this.registry.getAllHandlerDefinitions();
+    
+    if (handlerDefinitions.length === 0) {
+      console.warn('[API] No handler definitions registered');
+      return handlers;
+    }
+    
+    // Define handler layout based on node type
+    const layouts: Record<string, Array<{type: string, offset: {x: number, y: number}, role: 'source' | 'target' | ''}>> = {
+      'start': [
+        { type: 'output', offset: { x: 160, y: 40 }, role: 'source' }  // Right side
+      ],
+      'end': [
+        { type: 'input', offset: { x: 0, y: 40 }, role: 'target' }  // Left side
+      ],
+      'task': [
+        { type: 'input', offset: { x: 0, y: 40 }, role: 'target' },    // Left side
+        { type: 'output', offset: { x: 160, y: 40 }, role: 'source' }  // Right side
+      ],
+      'decision': [
+        { type: 'input', offset: { x: 80, y: 0 }, role: 'target' },    // Top
+        { type: 'output', offset: { x: 160, y: 40 }, role: 'source' }, // Right (true)
+        { type: 'output', offset: { x: 80, y: 80 }, role: 'source' }   // Bottom (false)
+      ]
+    };
+    
+    const layout = layouts[nodeType] || [
+      { type: 'input', offset: { x: 0, y: 40 }, role: 'target' as const },
+      { type: 'output', offset: { x: 160, y: 40 }, role: 'source' as const }
+    ];
+    
+    // Create handlers based on layout
+    layout.forEach((spec, index) => {
+      const handlerDef = this.registry.getHandlerDefinition(spec.type);
+      
+      if (!handlerDef) {
+        console.warn(`[API] Handler type "${spec.type}" not registered, skipping`);
+        return;
+      }
+      
+      const handlerId = createHandlerId(`${nodeId}_handler_${spec.type}_${index}`);
+      
+      const handler = new Handler(
+        handlerId,
+        spec.type,
+        handlerDef,
+        spec.offset,
+        '', // label
+        spec.role
+      );
+      
+      handlers.push(handler);
+    });
+    
+    console.log(`[API] Created ${handlers.length} handlers for node type "${nodeType}"`);
+    return handlers;
+  }
+  
+  /**
    * Creates the Queries API namespace.
-   * All queries return immutable data copies.
    */
   private createQueriesAPI(): WidgetQueries {
     return {
@@ -614,7 +670,6 @@ export class DiagramAPI implements WidgetAPI {
           return Object.freeze(this.serializationService.serialize());
         } catch (error) {
           console.error('[API] getGraphData failed:', error);
-          // Return empty state as fallback
           return Object.freeze({
             metadata: {
               version: '1.0.0',

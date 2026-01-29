@@ -1,5 +1,6 @@
 /**
  * Renders connections using the Geometry engine.
+ * FIXED: Labels positioned exactly on curves but always horizontal
  */
 import * as d3 from 'd3';
 import { Connection } from '../domain/models/Connection';
@@ -29,43 +30,33 @@ export class LinkRenderer {
     connections: ReadonlyArray<Readonly<Connection>>,
     nodes: ReadonlyArray<Readonly<Node>>
   ): void {
-    // Get handler positions from store cache
     const handlerPositions = this.getHandlerPositions();
-    
-    // Cast to mutable for D3 binding
     const connectionsArray = connections as any[];
     const nodesArray = nodes as any[];
     
-    // Bind data
     const linkGroups = container
       .selectAll<SVGGElement, Connection>('g.connection')
       .data(connectionsArray, (d: Connection) => d.id);
       
-    // EXIT
     linkGroups.exit().remove();
     
-    // ENTER
     const enterGroups = linkGroups.enter()
       .append('g')
       .attr('class', 'connection')
       .attr('data-connection-id', (d: Connection) => d.id);
       
-    // Create link structure - FIX: Use proper type for .each()
     enterGroups.each((d: Connection, i: number, groups: ArrayLike<SVGGElement>) => {
       const group = d3.select(groups[i]);
       this.createLinkStructure(group as any);
     });
     
-    // UPDATE
     const allGroups = enterGroups.merge(linkGroups);
     
-    // FIX: Use proper type for .each()
     allGroups.each((d: Connection, i: number, groups: ArrayLike<SVGGElement>) => {
       const group = d3.select(groups[i]);
       this.updateLinkContent(group as any, d, nodesArray, handlerPositions);
     });
     
-    // Update selection styles
     this.updateSelectionStyles(allGroups as any);
   }
   
@@ -76,12 +67,17 @@ export class LinkRenderer {
   ): void {
     container.selectAll('.ghost-connection').remove();
     
+    // CRITICAL FIX: Get the actual handler position, not node position
     const sourcePos = this.store.getHandlerAbsolutePosition(sourceHandlerId as HandlerId);
-    if (!sourcePos) return;
+    if (!sourcePos) {
+      console.warn('[LinkRenderer] Cannot render ghost: handler position not found', sourceHandlerId);
+      return;
+    }
     
     const ghostGroup = container.append('g')
       .attr('class', 'ghost-connection');
       
+    // Draw line from handler center to target position
     ghostGroup.append('path')
       .attr('class', 'ghost-path')
       .attr('d', `M ${sourcePos.x},${sourcePos.y} L ${targetPosition.x},${targetPosition.y}`)
@@ -99,7 +95,6 @@ export class LinkRenderer {
   private createLinkStructure(
     group: d3.Selection<SVGGElement, Connection, null, undefined>
   ): void {
-    // Invisible hit area for easier clicking
     group.append('path')
       .attr('class', 'connection-hitarea')
       .style('stroke', 'transparent')
@@ -107,16 +102,16 @@ export class LinkRenderer {
       .style('fill', 'none')
       .style('cursor', 'pointer');
       
-    // Visible path
     group.append('path')
       .attr('class', 'connection-path')
       .style('fill', 'none')
       .style('pointer-events', 'none');
       
-    // Label group (optional)
     const labelGroup = group.append('g')
       .attr('class', 'connection-label')
-      .style('display', 'none');
+      .style('display', 'none')
+      .style('pointer-events', 'all')
+      .style('cursor', 'move');
       
     labelGroup.append('rect')
       .attr('class', 'label-background')
@@ -135,10 +130,15 @@ export class LinkRenderer {
     nodes: Node[],
     handlerPositions: Map<string, Position>
   ): void {
-    // Calculate path
     const pathString = PathCalculator.calculatePath(connection, nodes, handlerPositions);
     
-    // Update paths
+    if (!pathString) {
+      group.style('display', 'none');
+      return;
+    }
+    
+    group.style('display', null);
+    
     group.select('.connection-hitarea').attr('d', pathString);
     
     const pathSelection = group.select('.connection-path')
@@ -146,16 +146,14 @@ export class LinkRenderer {
       .style('stroke', connection.style.stroke || Config.DEFAULT_LINK_STROKE)
       .style('stroke-width', connection.style.strokeWidth || Config.DEFAULT_LINK_WIDTH);
     
-    // Handle stroke-dasharray properly
     if (connection.style.strokeDasharray) {
       pathSelection.style('stroke-dasharray', connection.style.strokeDasharray);
     } else {
       pathSelection.style('stroke-dasharray', null);
     }
       
-    // Update label if present
-    if (connection.label) {
-      this.renderLabel(group, connection, nodes, handlerPositions);
+    if (connection.label && connection.label.text) {
+      this.renderLabel(group, connection, nodes, handlerPositions, pathString);
     } else {
       group.select('.connection-label').style('display', 'none');
     }
@@ -165,24 +163,28 @@ export class LinkRenderer {
     group: d3.Selection<SVGGElement, Connection, null, undefined>,
     connection: Connection,
     nodes: Node[],
-    handlerPositions: Map<string, Position>
+    handlerPositions: Map<string, Position>,
+    pathString: string
   ): void {
-    if (!connection.label) return;
+    if (!connection.label || !connection.label.text) return;
     
     const labelGroup = group.select('.connection-label');
     labelGroup.style('display', null);
     
-    // Calculate position along path
-    const position = PathCalculator.calculatePositionAlongPath(
-      connection,
-      connection.label.offset,
-      nodes,
-      handlerPositions
-    );
+    const offset = connection.label.offset !== undefined ? connection.label.offset : 0.5;
     
-    if (!position) return;
+    // Get the actual rendered path element
+    const pathElement = group.select('.connection-path').node() as SVGPathElement;
+    if (!pathElement) return;
     
-    labelGroup.attr('transform', `translate(${position.x},${position.y})`);
+    const pathLength = pathElement.getTotalLength();
+    const targetLength = pathLength * offset;
+    
+    // Get the EXACT point on the path
+    const point = pathElement.getPointAtLength(targetLength);
+    
+    // FIXED: Position label at the point but keep it HORIZONTAL (no rotation)
+    labelGroup.attr('transform', `translate(${point.x},${point.y})`);
     
     // Update text
     const text = labelGroup.select('.label-text')
@@ -201,13 +203,13 @@ export class LinkRenderer {
       .attr('height', bbox.height + padding * 2)
       .style('fill', connection.label.bgColor || '#ffffff')
       .style('stroke', '#cccccc')
-      .style('stroke-width', 1);
+      .style('stroke-width', 1)
+      .style('opacity', 0.95);
   }
   
   private updateSelectionStyles(
     groups: d3.Selection<SVGGElement, Connection, null, undefined>
   ): void {
-    // FIX: Use proper type for .each()
     groups.each((d: Connection, i: number, groups: ArrayLike<SVGGElement>) => {
       const group = d3.select(groups[i]);
       const isSelected = this.selectionState?.type === 'link' && 

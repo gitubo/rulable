@@ -3,7 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Diagram Editor Widget - Example (FIXED)</title>
+  <title>Diagram Editor Widget - Example</title>
+  
+  <!-- Import Map for D3 -->
+  <script type="importmap">
+    {
+      "imports": {
+        "d3": "https://cdn.jsdelivr.net/npm/d3@7/+esm"
+      }
+    }
+  </script>
+  
   <style>
     * {
       margin: 0;
@@ -98,7 +108,7 @@
 </head>
 <body>
   <header>
-    <h1>📊 Diagram Editor Widget - Fixed Module Loading</h1>
+    <h1>📊 Diagram Editor Widget</h1>
   </header>
   
   <div class="container">
@@ -134,20 +144,8 @@
     <div id="diagram-container"></div>
   </div>
   
-  <!-- Load D3 first from CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
-  
   <!-- Load widget module -->
   <script type="module">
-    // Check if D3 loaded
-    if (typeof d3 === 'undefined') {
-      document.getElementById('status').innerHTML = '❌ Error: D3 library failed to load';
-      document.getElementById('status').className = 'status error';
-      throw new Error('D3 not loaded');
-    }
-    
-    console.log('✅ D3 loaded:', d3.version);
-    
     // Import widget
     import { DAGWidget } from './dist/index.js';
     
